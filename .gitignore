@@ -1,0 +1,32 @@
+# 依赖
+node_modules/
+vendor/
+
+# 环境配置（含密钥，不要提交）
+.env
+server/.env
+
+# 上传的图片
+server/public/uploads/*
+!server/public/uploads/.gitignore
+
+# 编辑器 / 系统
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# uni-app 编译产物
+ganluo/unpackage/
+ganluo/project.private.config.json
+
+# 日志
+*.log
+
+# 打包部署用的压缩包 —— server.zip 里含 .env（数据库密码 + AppSecret），绝不能提交
+*.zip
+*.rar
+*.7z
+*.tar
+*.tar.gz
+server.zip

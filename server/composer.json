@@ -1,0 +1,20 @@
+{
+    "name": "ganluo/server",
+    "description": "吉壹 · 情侣私密日常记录工具 —— 后端 API",
+    "type": "project",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.1",
+        "ext-pdo": "*",
+        "ext-json": "*",
+        "ext-mbstring": "*"
+    },
+    "autoload": {
+        "psr-4": {
+            "App\\": "src/"
+        }
+    },
+    "config": {
+        "optimize-autoloader": true
+    }
+}

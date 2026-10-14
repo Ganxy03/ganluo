@@ -1,0 +1,196 @@
+# 吉壹
+
+> 情侣私密日常记录小程序 —— 心情日记 · 三餐报备 · 留言提醒
+
+一个只服务于两个人的私密记录工具：微信一键登录，输入对方用户ID互相绑定，
+之后就能看到彼此每天的心情、一日三餐，以及留给对方的话。
+
+---
+
+## 目录结构
+
+```
+ganluo/
+├── docs/
+│   └── 需求文档.md          ← 先看这个
+├── ganluo/                  前端：uni-app（Vue3），用 HBuilderX 打开
+│   ├── pages.json           页面注册 + TabBar 配置
+│   ├── manifest.json        应用配置（微信 AppID 填这里）
+│   ├── main.js / App.vue    入口 + 全局主题样式
+│   ├── components/
+│   │   └── InputSheet.vue   通用底部文字输入弹层
+│   ├── pages/
+│   │   ├── login/login.vue      登录 + 首次绑定
+│   │   ├── index/index.vue      主页（日常）：我 / TA 两个板块
+│   │   └── profile/profile.vue  个人页（我的）
+│   └── utils/
+│       ├── request.js       uni.request 封装（token 注入 / 401 跳登录）
+│       ├── api.js           接口定义
+│       ├── store.js         登录态（内存 + 本地缓存）
+│       └── format.js        日期格式化
+└── server/                  PHP 后端
+    ├── public/index.php     入口（web 根目录）
+    ├── public/uploads/      上传图片存放
+    ├── routes/api.php       全部路由
+    ├── src/                 框架 + 业务代码
+    ├── sql/schema.sql       建表脚本
+    └── .env.example         配置模板
+```
+
+---
+
+## 环境要求
+
+| 依赖 | 版本 |
+|---|---|
+| PHP | >= 8.1（已在 8.2.31 上验证） |
+| MySQL | >= 5.7（已在 8.2 上验证） |
+| **HBuilderX** | 最新稳定版（用于打开 / 编译 `ganluo`） |
+| **微信开发者工具** | 最新稳定版（HBuilderX 会调用它来预览，**必须装**） |
+
+后端**不需要** `composer install`，没有第三方依赖。
+
+---
+
+## 启动步骤
+
+### 1. 建数据库
+
+```bash
+mysql -u root -p < server/sql/schema.sql
+```
+
+会创建数据库 `ganluo` 和 5 张表。
+
+### 2. 配置后端
+
+```bash
+cp server/.env.example server/.env
+```
+
+编辑 `server/.env`，至少填 `DB_USERNAME` 和 `DB_PASSWORD`：
+
+```ini
+DB_DATABASE=ganluo
+DB_USERNAME=root
+DB_PASSWORD=你的密码
+```
+
+> `.env` 已在 `.gitignore` 里，不会被提交。
+
+### 3. 启动后端
+
+**双击 `server/start.bat`** 即可（Windows）。
+
+或者用命令行：
+
+```bash
+php -S 127.0.0.1:8000 -t server/public
+```
+
+> ⚠️ **这个窗口要一直开着**。小程序报 `ERR_CONNECTION_REFUSED` 就是因为它没在跑。
+> 端口必须和 `ganluo/utils/request.js` 里的 `BASE_URL` 一致（默认 8000）。
+
+验证是否跑通：
+
+```bash
+curl http://127.0.0.1:8000/api/auth/me
+# 预期：{"code":-1,"message":"未登录","data":null}
+```
+
+能返回这条 JSON 就说明路由和框架都正常了。
+
+### 4. 打开小程序（HBuilderX）
+
+1. **HBuilderX → 文件 → 打开目录 → 选中 `ganluo`**
+2. 先在 HBuilderX「工具 → 设置 → 运行配置」里指定**微信开发者工具的安装路径**
+3. 顶部菜单：**运行 → 运行到小程序模拟器 → 微信开发者工具**
+4. 起来之后，在微信开发者工具里：**详情 → 本地设置 → 勾选「不校验合法域名」**
+   （后端是 `http://127.0.0.1:8000`，微信默认只允许 https）
+
+> ❗ HBuilderX 只负责编译，**真正的预览和上传仍然由微信开发者工具完成**。
+> 这是微信的硬性要求，绕不开 —— 所以两个工具都要装。
+
+### 5. 真机调试（手机访问电脑）
+
+模拟器里 `127.0.0.1` 指的是电脑自己，所以能通；
+但**手机上 `127.0.0.1` 指的是手机自己**，必须改成电脑的局域网 IP。
+
+本项目当前配置（电脑局域网 IP = `192.168.13.30`）：
+
+| 位置 | 值 |
+|---|---|
+| `ganluo/utils/request.js` → `BASE_URL` | `http://192.168.13.30:8000` |
+| `server/.env` → `APP_URL` | `http://192.168.13.30:8000` |
+| `server/start.bat` | 监听 `0.0.0.0:8000`（**不能是 127.0.0.1**，否则手机连不上） |
+
+**前提条件：**
+
+1. 手机和电脑连**同一个 WiFi**（同一网段 `192.168.13.x`）
+2. 后端监听 `0.0.0.0:8000` —— `netstat -ano | findstr :8000` 应看到 `0.0.0.0:8000`
+3. Windows 防火墙放行 8000 入站（本项目已有 `PHP Dev Server 8000` 规则）
+4. 微信开发者工具里「不校验合法域名」要保持勾选
+
+**操作：** 微信开发者工具顶部工具栏 → **真机调试** → 手机扫码。
+
+> ⚠️ 换个网络环境（比如换 WiFi、重启路由器），电脑的局域网 IP 可能会变。
+> 变了就要同步改上面那三处。用 `ipconfig` 查当前 IP。
+
+**切回模拟器**：把 `BASE_URL` 和 `APP_URL` 改回 `http://127.0.0.1:8000` 即可。
+
+### 6. 线上环境
+
+后端已部署到 **`https://y.bobay.top`**（体验版 / 正式版必须走这里，`http` 和 IP 都会被微信拦截）。
+
+| 位置 | 值 |
+|---|---|
+| 前端 `ganluo/utils/request.js` → `BASE_URL` | `https://y.bobay.top` |
+| **服务器**的 `server/.env` → `APP_URL` | `https://y.bobay.top` |
+
+> ⚠️ **最容易漏的一条**：服务器上的 `APP_URL` 必须是域名。
+> 它决定三餐图片拼出来的完整 URL —— 如果还是 `http://192.168.13.30:8000`，
+> 那么**别人手机上看图片全是坏的**（接口正常，只有图片挂）。
+> 检查方法：随便记一餐带图，读回来看看 `images[0]` 是不是 `https://y.bobay.top/...` 开头。
+
+**发体验版还差一步**：小程序后台 → 开发管理 → 开发设置 → **服务器域名** →
+`request 合法域名` 里加上 `https://y.bobay.top`，然后重新上传代码。
+（开发工具里勾的「不校验合法域名」**不会随体验版生效**。）
+
+---
+
+## 关于微信登录的真实限制
+
+**游客模式 / 测试号下，`wx.login` 拿到的 code 无法在服务端换取真实 openid。**
+
+要打通真实登录，需要：
+
+1. 在 [微信公众平台](https://mp.weixin.qq.com) 注册小程序，拿到 `AppID` 和 `AppSecret`
+2. 填进 `server/.env`：
+   ```ini
+   WECHAT_APPID=wx1234567890abcdef
+   WECHAT_SECRET=your_app_secret
+   ```
+3. 把 `ganluo/manifest.json` 里 `mp-weixin.appid` 换成自己的
+
+在此之前，前后端的**其他功能都无法联调**（因为拿不到 token）。
+
+> 💡 如果只是想先看界面效果，我可以临时加一个"开发模式登录"开关，
+> 跳过微信校验直接建号。需要的话告诉我。
+
+---
+
+## 上线前必须处理
+
+- [ ] `server/.env` 里 `APP_DEBUG=false`（不然报错详情会暴露给前端）
+- [ ] `JWT_SECRET` 换成随机长字符串
+- [ ] 后端部署到 HTTPS 域名，并在小程序后台配置「服务器域名」
+- [ ] 图片改用云存储（COS / OSS / 七牛），不要把图片堆在服务器本地磁盘
+- [ ] `public/index.php` 里的 CORS 从 `*` 收紧到具体域名
+
+---
+
+## 相关文档
+
+- 需求文档：`docs/需求文档.md`
+- 建表脚本：`server/sql/schema.sql`
+- 接口清单：需求文档 第六节
