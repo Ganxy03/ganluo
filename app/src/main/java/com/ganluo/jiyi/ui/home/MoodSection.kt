@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,8 +12,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -158,7 +159,7 @@ private fun MoodList(moods: List<MoodDto>, onLongPress: ((MoodDto) -> Unit)?) {
     }
 }
 
-/** 心情选择弹层:网格 + 文字输入 + 取消/记录;列数随弹窗宽度自适应 */
+/** 心情选择弹层:固定 4 列网格 + 文字输入 + 取消/记录;外面套 verticalScroll 防弹窗过窄时裁掉 */
 @Composable
 fun MoodPickerSheet(
     visible: Boolean,
@@ -173,31 +174,22 @@ fun MoodPickerSheet(
         onDismissRequest = onCancel,
         title = { Text("今天心情怎么样", textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) },
         text = {
-            Column {
-                BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                    // 弹窗窄(<300dp)就用 3 列,避免 emoji + 文字 cell 挤变形
-                    val cols = if (maxWidth < 300.dp) 3 else 4
-                    val emojiSize = if (maxWidth < 300.dp) 22.sp else 26.sp
-                    MOODS.chunked(cols).forEach { row ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            row.forEach { m ->
-                                val active = selected == m.type
-                                MoodCell(
-                                    emoji = m.emoji,
-                                    label = m.label,
-                                    active = active,
-                                    emojiSize = emojiSize,
-                                    onClick = { selected = m.type },
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                            // 最后一行不够 cols 个时,补占位 Spacer 让可见 cell 保持左对齐
-                            repeat(cols - row.size) {
-                                Spacer(modifier = Modifier.weight(1f))
-                            }
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                MOODS.chunked(4).forEach { row ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        row.forEach { m ->
+                            val active = selected == m.type
+                            MoodCell(
+                                emoji = m.emoji,
+                                label = m.label,
+                                active = active,
+                                emojiSize = 26.sp,
+                                onClick = { selected = m.type },
+                                modifier = Modifier.weight(1f)
+                            )
                         }
                     }
                 }
