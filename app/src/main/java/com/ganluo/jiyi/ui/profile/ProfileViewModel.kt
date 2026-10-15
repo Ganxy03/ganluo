@@ -1,7 +1,11 @@
 package com.ganluo.jiyi.ui.profile
 
+import android.content.Context
+import android.net.Uri
+import android.webkit.MimeTypeMap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.ganluo.jiyi.data.remote.ApiService
 import com.ganluo.jiyi.data.remote.dto.BindRequestDto
 import com.ganluo.jiyi.data.remote.dto.UserDto
 import com.ganluo.jiyi.data.repository.AuthRepository
@@ -9,16 +13,23 @@ import com.ganluo.jiyi.data.repository.BindRepository
 import com.ganluo.jiyi.update.AppUpdateChecker
 import com.ganluo.jiyi.update.UpdateCheckResult
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
+import okhttp3.RequestBody.Companion.asRequestBody
+import java.io.File
 import javax.inject.Inject
 
 @HiltViewModel
 class ProfileViewModel @Inject constructor(
     private val auth: AuthRepository,
     private val bind: BindRepository,
-    private val appUpdateChecker: AppUpdateChecker
+    private val appUpdateChecker: AppUpdateChecker,
+    private val api: ApiService,
+    @ApplicationContext private val appContext: Context
 ) : ViewModel() {
 
     private val _me = MutableStateFlow<UserDto?>(null)
@@ -40,6 +51,10 @@ class ProfileViewModel @Inject constructor(
     private val _updateChecking = MutableStateFlow(false)
     val updateChecking = _updateChecking.asStateFlow()
 
+    // 头像上传状态(null=空闲)
+    private val _avatarUploading = MutableStateFlow(false)
+    val avatarUploading = _avatarUploading.asStateFlow()
+
     fun load() = viewModelScope.launch {
         try {
             val me = auth.me()
@@ -58,6 +73,50 @@ class ProfileViewModel @Inject constructor(
             _msg.value = "已保存"
         } catch (e: Exception) {
             _msg.value = e.message
+        }
+    }
+
+    /**
+     * 头像上传:把相册/相机选的图先 POST /api/upload/image 拿 url,
+     * 再 PATCH /api/auth/profile 写到 user.avatar。
+     * Uri → cacheFile → MultipartBody.Part,沿用后端 field 名 "file"。
+     */
+    fun uploadAvatar(uri: Uri) = viewModelScope.launch {
+        if (_avatarUploading.value) return@launch
+        _avatarUploading.value = true
+        try {
+            val mime = appContext.contentResolver.getType(uri)
+                ?: MimeTypeMap.getSingleton().getMimeTypeFromExtension(
+                    uri.lastPathSegment?.substringAfterLast('.', "")
+                )
+                ?: "image/jpeg"
+            val ext = MimeTypeMap.getSingleton().getExtensionFromMimeType(mime) ?: "jpg"
+
+            // ContentResolver 读到 cacheFile(必须,因为 Uri 不能直接当 RequestBody)
+            val cacheFile = File(appContext.cacheDir, "avatar_${System.currentTimeMillis()}.$ext")
+            appContext.contentResolver.openInputStream(uri).use { input ->
+                requireNotNull(input) { "无法读取图片" }
+                cacheFile.outputStream().use { output -> input.copyTo(output) }
+            }
+            if (cacheFile.length() > 5 * 1024 * 1024) {
+                cacheFile.delete()
+                _msg.value = "图片不能超过 5MB"
+                return@launch
+            }
+
+            val body = cacheFile.asRequestBody(mime.toMediaTypeOrNull())
+            val part = MultipartBody.Part.createFormData("file", cacheFile.name, body)
+            val resp = api.uploadImage(part)
+
+            // 后端返回相对路径,直接 set,显示时由 Helper::toAbsoluteUrl 拼完整域名
+            val updated = auth.updateProfile(_me.value?.nickname, _me.value?.signature, resp.url)
+            _me.value = updated
+            _msg.value = "头像已更新"
+            cacheFile.delete()
+        } catch (e: Exception) {
+            _msg.value = "上传失败:${e.message}"
+        } finally {
+            _avatarUploading.value = false
         }
     }
 

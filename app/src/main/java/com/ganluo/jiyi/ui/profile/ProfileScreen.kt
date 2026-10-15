@@ -3,6 +3,10 @@ package com.ganluo.jiyi.ui.profile
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -81,12 +85,25 @@ fun ProfileScreen(
     val msg by vm.msg.collectAsStateWithLifecycle()
     val updateState by vm.updateState.collectAsStateWithLifecycle()
     val updateChecking by vm.updateChecking.collectAsStateWithLifecycle()
+    val avatarUploading by vm.avatarUploading.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
 
     LaunchedEffect(Unit) { vm.load() }
     LaunchedEffect(msg) {
         msg?.let { snackbar.showSnackbar(it); vm.clearMsg() }
+    }
+
+    // 头像 photo picker:Android 13+ 系统弹窗,无需 READ_MEDIA_IMAGES 权限
+    val pickImage = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        uri?.let { vm.uploadAvatar(it) }
+    }
+    fun launchPicker() {
+        pickImage.launch(
+            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+        )
     }
 
     var nicknameInput by remember { mutableStateOf("") }
@@ -122,7 +139,13 @@ fun ProfileScreen(
                     if (narrow) {
                         Column {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Avatar(url = me?.avatar, name = me?.nickname, size = 56.dp)
+                                AvatarWithBadge(
+                                    url = me?.avatar,
+                                    name = me?.nickname,
+                                    size = 56.dp,
+                                    uploading = avatarUploading,
+                                    onClick = ::launchPicker
+                                )
                                 Spacer(Modifier.width(12.dp))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
@@ -131,7 +154,10 @@ fun ProfileScreen(
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
-                                    Text("编辑右侧字段后保存", color = TextLight, fontSize = 11.sp)
+                                    Text(
+                                        if (avatarUploading) "正在上传头像…" else "点我头像可以更换",
+                                        color = TextLight, fontSize = 11.sp
+                                    )
                                 }
                             }
                             Spacer(Modifier.height(10.dp))
@@ -159,7 +185,13 @@ fun ProfileScreen(
                         }
                     } else {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Avatar(url = me?.avatar, name = me?.nickname, size = 64.dp)
+                            AvatarWithBadge(
+                                url = me?.avatar,
+                                name = me?.nickname,
+                                size = 64.dp,
+                                uploading = avatarUploading,
+                                onClick = ::launchPicker
+                            )
                             Spacer(Modifier.width(16.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 OutlinedTextField(
@@ -479,4 +511,46 @@ private fun OutgoingRow(r: BindRequestDto, vm: ProfileViewModel) {
 private fun copyToClipboard(context: Context, text: String) {
     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     cm.setPrimaryClip(ClipData.newPlainText("invite_code", text))
+}
+
+/** 头像 + 右上角"换"角标 + 上传中转圈。点整块触发 photo picker。 */
+@Composable
+private fun AvatarWithBadge(
+    url: String?,
+    name: String?,
+    size: androidx.compose.ui.unit.Dp,
+    uploading: Boolean,
+    onClick: () -> Unit
+) {
+    Box(modifier = Modifier.clickable(enabled = !uploading, onClick = onClick)) {
+        Avatar(url = url, name = name, size = size)
+        // 右上角"换"角标
+        if (!uploading) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .size(size / 3)
+                    .clip(CircleShape)
+                    .background(Primary),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("换", color = Color.White, fontSize = (size.value / 4.5f).sp)
+            }
+        } else {
+            // 上传中:蒙一层半透明白 + 中心 spinner
+            Box(
+                modifier = Modifier
+                    .size(size)
+                    .clip(CircleShape)
+                    .background(Color(0x99FFFFFF)),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(size / 2.5f),
+                    strokeWidth = 2.dp,
+                    color = PrimaryDeep
+                )
+            }
+        }
+    }
 }
