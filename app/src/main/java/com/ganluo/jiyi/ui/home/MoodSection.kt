@@ -181,28 +181,22 @@ fun MoodPickerSheet(
                     MOODS.chunked(cols).forEach { row ->
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceEvenly
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             row.forEach { m ->
                                 val active = selected == m.type
-                                Column(
-                                    modifier = Modifier
-                                        .padding(4.dp)
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(if (active) PrimarySoft else Color(0xFFF8F4F5))
-                                        .clickable { selected = m.type }
-                                        .padding(horizontal = 6.dp, vertical = 8.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    Text(m.emoji, fontSize = emojiSize)
-                                    Spacer(Modifier.height(2.dp))
-                                    Text(
-                                        m.label,
-                                        fontSize = 12.sp,
-                                        color = if (active) PrimaryDeep else TextSub,
-                                        fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal
-                                    )
-                                }
+                                MoodCell(
+                                    emoji = m.emoji,
+                                    label = m.label,
+                                    active = active,
+                                    emojiSize = emojiSize,
+                                    onClick = { selected = m.type },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            // 最后一行不够 cols 个时,补占位 Spacer 让可见 cell 保持左对齐
+                            repeat(cols - row.size) {
+                                Spacer(modifier = Modifier.weight(1f))
                             }
                         }
                     }
@@ -230,4 +224,34 @@ fun MoodPickerSheet(
             TextButton(onClick = onCancel) { Text("取消") }
         }
     )
+}
+
+/** 心情选择单元:等宽,垂直排 emoji + 标签,选中态高亮 */
+@Composable
+private fun MoodCell(
+    emoji: String,
+    label: String,
+    active: Boolean,
+    emojiSize: androidx.compose.ui.unit.TextUnit,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (active) PrimarySoft else Color(0xFFF8F4F5))
+            .clickable(onClick = onClick)
+            .padding(vertical = 10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(emoji, fontSize = emojiSize)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = label,
+            fontSize = 12.sp,
+            color = if (active) PrimaryDeep else TextSub,
+            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+            maxLines = 1
+        )
+    }
 }
