@@ -14,8 +14,8 @@ android {
         applicationId = "cn.ganluo.jiyi"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "1.0.3"
+        versionCode = 5
+        versionName = "1.0.4"
 
         // 后端基址,改这里切环境(线上 / 内网 / mock)
         buildConfigField("String", "API_BASE_URL", "\"https://y.bobay.top\"")
