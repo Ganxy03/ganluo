@@ -15,11 +15,11 @@ final class AppVersionController
     public function latest(array $params = []): void
     {
         Response::ok([
-            'latest_code'   => 7,
-            'latest_name'   => '1.0.6',
-            'download_url'  => 'https://y.bobay.top/downloads/ganluo-1.0.6.apk',
+            'latest_code'   => 8,
+            'latest_name'   => '1.0.7',
+            'download_url'  => 'https://y.bobay.top/downloads/ganluo-1.0.7.apk',
             'sha256'        => '',
-            'changelog'     => "修复:心情选择弹窗只显示 3 个图标(1.0.5 改 cols 自适应时,小屏选 3 列但弹窗被 maxHeight 裁掉剩余行)。改为固定 4 列 + 内容 verticalScroll,8 个永远都在。",
+            'changelog'     => "新增:头像上传(「我的」页点头像或右下角「换」角标 → 系统相册选图 → 自动上传到 https://y.bobay.top/uploads/,旧后端 /api/upload/image 端点,无需新后端代码)。",
             'force_update'  => false,
             'min_supported' => 1,
         ]);

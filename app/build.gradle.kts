@@ -14,26 +14,52 @@ android {
         applicationId = "cn.ganluo.jiyi"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
-        versionName = "1.0.6"
+        versionCode = 8
+        versionName = "1.0.7"
 
         // 后端基址,改这里切环境(线上 / 内网 / mock)
         buildConfigField("String", "API_BASE_URL", "\"https://y.bobay.top\"")
         buildConfigField("String", "BUILD_FLAVOR", "\"debug\"")
+
+        // NDK ABI 过滤,减小 APK 体积(高德 SDK 包含 .so)
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
+    }
+
+    // --- Release 签名配置(读取 ~/.gradle/gradle.properties)---
+    signingConfigs {
+        create("release") {
+            val storeFilePath = (project.findProperty("GANLUO_STORE_FILE") as String?)
+                ?: throw GradleException("缺少 GANLUO_STORE_FILE,请配置 ~/.gradle/gradle.properties")
+            storeFile = file(storeFilePath)
+            storePassword = project.findProperty("GANLUO_STORE_PASSWORD") as String?
+            keyAlias = project.findProperty("GANLUO_KEY_ALIAS") as String?
+            keyPassword = project.findProperty("GANLUO_KEY_PASSWORD") as String?
+        }
     }
 
     buildTypes {
         debug {
             isMinifyEnabled = false
             applicationIdSuffix = ".debug"
+            // Debug 用 debug key(从 ~/.gradle/gradle.properties 读)
+            val debugKey = (project.findProperty("AMAP_KEY_DEBUG") as String?)
+                ?: "REPLACE_ME_DEBUG_KEY"
+            buildConfigField("String", "AMAP_KEY", "\"$debugKey\"")
         }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // Release 用 release key
+            val releaseKey = (project.findProperty("AMAP_KEY_RELEASE") as String?)
+                ?: "REPLACE_ME_RELEASE_KEY"
+            buildConfigField("String", "AMAP_KEY", "\"$releaseKey\"")
         }
     }
 
