@@ -15,11 +15,11 @@ final class AppVersionController
     public function latest(array $params = []): void
     {
         Response::ok([
-            'latest_code'   => 4,
-            'latest_name'   => '1.0.3',
-            'download_url'  => 'https://y.bobay.top/downloads/ganluo-1.0.3.apk',
+            'latest_code'   => 5,
+            'latest_name'   => '1.0.4',
+            'download_url'  => 'https://y.bobay.top/downloads/ganluo-1.0.4.apk',
             'sha256'        => '',
-            'changelog'     => "1. 缩短顶部导航栏至 44dp,贴近主流 App\n2. 暂时隐藏首页蓝牙入口\n3. 正式版本号命名(去掉 -debug 后缀)",
+            'changelog'     => "紧急修复:心情日记的「+ 记录」按钮无法点击(缺失 clickable 修饰符)",
             'force_update'  => false,
             'min_supported' => 1,
         ]);

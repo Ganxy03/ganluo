@@ -1,6 +1,7 @@
 package com.ganluo.jiyi.ui.component
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -68,13 +69,14 @@ fun SectionTitle(
             )
         }
         if (action != null && onAction != null) {
-            Spacer(Modifier.fillMaxWidth().weight(1f))
+            Spacer(modifier = Modifier.weight(1f))
             Text(
                 text = action,
                 color = PrimaryDeep,
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier
                     .padding(start = 8.dp)
+                    .clickable { onAction() }
             )
         }
     }
