@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- 更新 APK 缓存目录 (Context.filesDir/updates) -->
+    <files-path name="updates" path="updates/" />
+    <!-- 通用缓存,头像/图片分享 -->
+    <cache-path name="shared" path="shared/" />
+</paths>

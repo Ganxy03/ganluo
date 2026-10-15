@@ -1,32 +1,42 @@
-# 依赖
-node_modules/
-vendor/
+# ===== Gradle =====
+.gradle/
+build/
+*/build/
+out/
 
-# 环境配置（含密钥，不要提交）
-.env
-server/.env
+# ===== Android 构建产物 =====
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+release/
+captures/
+.externalNativeBuild/
+.cxx/
+*.hprof
+*.log
+proguard/
 
-# 上传的图片
-server/public/uploads/*
-!server/public/uploads/.gitignore
+# ===== 本地配置(SDK 路径、签名)=====
+local.properties
+*.jks
+*.keystore
+google-services.json
 
-# 编辑器 / 系统
+# ===== IDE =====
 .idea/
+*.iml
+*.iws
+*.ipr
 .vscode/
+
+# ===== 系统杂项 =====
 .DS_Store
 Thumbs.db
+*.swp
+*.swo
+*~
 
-# uni-app 编译产物
-ganluo/unpackage/
-ganluo/project.private.config.json
-
-# 日志
-*.log
-
-# 打包部署用的压缩包 —— server.zip 里含 .env（数据库密码 + AppSecret），绝不能提交
-*.zip
-*.rar
-*.7z
-*.tar
-*.tar.gz
-server.zip
+# ===== Kotlin =====
+.kotlin/

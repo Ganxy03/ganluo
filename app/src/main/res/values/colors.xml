@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 沿用原小程序主题色 #FF8FA3 -->
+    <color name="primary">#FF8FA3</color>
+    <color name="primary_deep">#F2697F</color>
+    <color name="primary_soft">#FFE3E9</color>
+    <color name="bg">#FDF6F7</color>
+    <color name="card">#FFFFFF</color>
+    <color name="text">#3D3A3C</color>
+    <color name="text_sub">#9B9B9B</color>
+    <color name="text_light">#C4C0C2</color>
+    <color name="line">#F2E6E9</color>
+    <color name="splash_background">#FFE6EB</color>
+    <color name="ic_launcher_background">#FFE3E9</color>
+</resources>

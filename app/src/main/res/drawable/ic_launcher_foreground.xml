@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 「吉」字简化图,粉色实心 -->
+    <path
+        android:fillColor="#FF8FA3"
+        android:pathData="M30,30 L78,30 L78,38 L60,38 L60,78 L52,78 L52,38 L30,38 Z" />
+    <path
+        android:fillColor="#F2697F"
+        android:pathData="M28,82 L80,82 L80,86 L28,86 Z" />
+    <path
+        android:fillColor="#FF8FA3"
+        android:pathData="M40,46 L68,46 L68,50 L40,50 Z" />
+    <path
+        android:fillColor="#FF8FA3"
+        android:pathData="M40,56 L68,56 L68,60 L40,60 Z" />
+    <path
+        android:fillColor="#FF8FA3"
+        android:pathData="M40,66 L68,66 L68,70 L40,70 Z" />
+</vector>
