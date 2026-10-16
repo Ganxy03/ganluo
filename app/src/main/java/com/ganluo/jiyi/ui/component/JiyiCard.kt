@@ -2,6 +2,7 @@ package com.ganluo.jiyi.ui.component
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -19,11 +20,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.ganluo.jiyi.ui.theme.Card
 import com.ganluo.jiyi.ui.theme.Primary
 import com.ganluo.jiyi.ui.theme.PrimaryDeep
+import com.ganluo.jiyi.ui.theme.Spacing
 
-/** 通用卡片:沿用原小程序 .card 样式,白底 24rpx 圆角 + 粉色阴影 */
+/**
+ * 通用卡片:surfaceContainer 配色 + 0 阴影(M3 Expressive 推荐用色阶分层而非阴影)
+ */
 @Composable
 fun JiyiCard(
     modifier: Modifier = Modifier,
@@ -31,12 +34,12 @@ fun JiyiCard(
 ) {
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        color = Card,
-        shadowElevation = 2.dp,
-        tonalElevation = 0.dp
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp
     ) {
-        Column(modifier = Modifier.padding(20.dp)) { content() }
+        Column(modifier = Modifier.padding(Spacing.cardPadding)) { content() }
     }
 }
 
@@ -51,20 +54,21 @@ fun SectionTitle(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 12.dp),
+            .padding(vertical = Spacing.xs),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Spacer(
+            Box(
                 modifier = Modifier
                     .width(3.dp)
-                    .height(18.dp)
-                    .background(Primary, shape = RoundedCornerShape(2.dp))
+                    .height(16.dp)
+                    .background(Primary, RoundedCornerShape(2.dp))
             )
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(Spacing.sm))
             Text(
                 text = label,
                 style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
                 fontWeight = FontWeight.SemiBold
             )
         }
@@ -73,10 +77,10 @@ fun SectionTitle(
             Text(
                 text = action,
                 color = PrimaryDeep,
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.labelLarge,
                 modifier = Modifier
-                    .padding(start = 8.dp)
                     .clickable { onAction() }
+                    .padding(horizontal = Spacing.sm, vertical = Spacing.xs)
             )
         }
     }
@@ -84,6 +88,6 @@ fun SectionTitle(
 
 /** 复用入口,直接指向 theme/Color.kt 的命名色 */
 object JiyiColors {
-    val Bg = Color(0xFFFDF6F7)
+    val Bg = Color(0xFFFFF8FA)
     val Card = Color(0xFFFFFFFF)
 }

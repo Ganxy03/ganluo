@@ -1,30 +1,20 @@
 package com.ganluo.jiyi.ui.home
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -37,29 +27,19 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.ganluo.jiyi.data.remote.dto.MoodDto
-import com.ganluo.jiyi.data.remote.dto.UserDto
+import com.ganluo.jiyi.data.remote.dto.MessageDto
 import com.ganluo.jiyi.ui.component.CompactTopBar
 import com.ganluo.jiyi.ui.component.DateBar
 import com.ganluo.jiyi.ui.component.JiyiCard
-import com.ganluo.jiyi.ui.theme.Primary
-import com.ganluo.jiyi.ui.theme.PrimaryDeep
-import com.ganluo.jiyi.ui.theme.PrimarySoft
-import com.ganluo.jiyi.ui.theme.TextLight
-import com.ganluo.jiyi.ui.theme.TextSub
+import com.ganluo.jiyi.ui.theme.Spacing
 import com.ganluo.jiyi.ui.util.DateUtil
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     onGoProfile: () -> Unit,
@@ -71,6 +51,7 @@ fun HomeScreen(
     val home by vm.home.collectAsStateWithLifecycle()
     val loading by vm.loading.collectAsStateWithLifecycle()
     val error by vm.error.collectAsStateWithLifecycle()
+    val composerUpload by vm.composerUpload.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
 
     LaunchedEffect(Unit) { vm.load() }
@@ -85,27 +66,39 @@ fun HomeScreen(
 
     var showMoodPicker by remember { mutableStateOf(false) }
     var showCompose by remember { mutableStateOf(false) }
-    var replyTarget by remember { mutableStateOf<com.ganluo.jiyi.data.remote.dto.MessageDto?>(null) }
+    var replyTarget by remember { mutableStateOf<MessageDto?>(null) }
     var pendingDelete by remember { mutableStateOf<DeleteTarget?>(null) }
 
-    Scaffold(
-        snackbarHost = { SnackbarHost(snackbar) },
-        topBar = {
-            CompactTopBar(title = "日常")
-            // 蓝牙入口暂时隐藏,需要时解开:
-            // actions = {
-            //     IconButton(onClick = onOpenBluetooth) {
-            //         Icon(Icons.Filled.Bluetooth, contentDescription = "蓝牙", tint = Color.White)
-            //     }
-            // }
+    // 留言发图的 photo picker
+    val pickImage = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        uri?.let { vm.uploadMessageImage(it) }
+    }
+    fun launchImagePicker() {
+        pickImage.launch(
+            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+        )
+    }
+
+    // 上传失败时弹 snackbar
+    LaunchedEffect(composerUpload) {
+        (composerUpload as? ComposerUpload.Failed)?.let {
+            snackbar.showSnackbar(it.message)
         }
+    }
+
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        snackbarHost = { SnackbarHost(snackbar) },
+        topBar = { CompactTopBar(title = "日常") }
     ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp)
+                .padding(horizontal = Spacing.screenH)
         ) {
             DateBar(
                 date = date,
@@ -116,17 +109,44 @@ fun HomeScreen(
             )
 
             if (loading) {
-                Text("加载中…", color = TextLight, modifier = Modifier.fillMaxWidth().padding(32.dp), textAlign = TextAlign.Center)
+                Text(
+                    "加载中…",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(Spacing.xxxl),
+                    textAlign = TextAlign.Center
+                )
             } else if (partner == null) {
                 JiyiCard {
-                    Text("还没有绑定另一半", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
-                    Spacer(Modifier.height(8.dp))
-                    Text("去「我的」页面输入 TA 的邀请码,就能看到彼此的日常啦", color = TextSub, fontSize = 12.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
-                    Spacer(Modifier.height(16.dp))
+                    Text(
+                        "还没有绑定另一半",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(Spacing.sm))
+                    Text(
+                        "去「我的」页面输入 TA 的邀请码,就能看到彼此的日常啦",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(Spacing.lg))
                     Button(
                         onClick = onGoProfile,
-                        modifier = Modifier.fillMaxWidth().height(44.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Primary, contentColor = Color.White)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp),
+                        shape = MaterialTheme.shapes.medium,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        )
                     ) { Text("去绑定") }
                 }
             } else {
@@ -141,7 +161,7 @@ fun HomeScreen(
                     onAdd = { showMoodPicker = true },
                     onLongPressMine = { pendingDelete = DeleteTarget.Mood(it.id) }
                 )
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(Spacing.md))
                 MessageSection(
                     bound = true,
                     messages = messages?.list.orEmpty(),
@@ -153,6 +173,7 @@ fun HomeScreen(
                     onTapMessage = { replyTarget = it; showCompose = true },
                     onLongPressMessage = { pendingDelete = DeleteTarget.Message(it.id) }
                 )
+                Spacer(Modifier.height(Spacing.bottomGap))
             }
         }
     }
@@ -169,10 +190,15 @@ fun HomeScreen(
     ComposeMessageSheet(
         visible = showCompose,
         replyTo = replyTarget,
+        composerUpload = composerUpload,
         onCancel = { showCompose = false; replyTarget = null },
-        onSend = { text ->
+        onPickImage = ::launchImagePicker,
+        onClearImage = { vm.clearComposerImage() },
+        onSend = { text, imageUrl, w, h ->
             showCompose = false
-            vm.sendMessage(text, replyTarget?.id) { replyTarget = null }
+            val target = replyTarget?.id
+            replyTarget = null
+            vm.sendMessage(text, target, imageUrl, w, h) { }
         }
     )
 
@@ -188,7 +214,7 @@ fun HomeScreen(
                         is DeleteTarget.Message -> vm.deleteMessage(target.id)
                     }
                     pendingDelete = null
-                }) { Text("删除", color = PrimaryDeep) }
+                }) { Text("删除", color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("取消") } }
         )

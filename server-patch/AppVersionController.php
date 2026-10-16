@@ -15,11 +15,11 @@ final class AppVersionController
     public function latest(array $params = []): void
     {
         Response::ok([
-            'latest_code'   => 8,
-            'latest_name'   => '1.0.7',
-            'download_url'  => 'https://y.bobay.top/downloads/ganluo-1.0.7.apk',
+            'latest_code'   => 10,
+            'latest_name'   => '1.0.9',
+            'download_url'  => 'https://y.bobay.top/downloads/ganluo-1.0.9.apk',
             'sha256'        => '',
-            'changelog'     => "新增:头像上传(「我的」页点头像或右下角「换」角标 → 系统相册选图 → 自动上传到 https://y.bobay.top/uploads/,旧后端 /api/upload/image 端点,无需新后端代码)。",
+            'changelog'     => "1.0.9 消息发图:\n• 「我的」页编辑改弹窗(头像+昵称+签名一站搞定)\n• 留言支持发图片:点「图片」按钮 → 选图 → 自动上传 → 预览 → 发送\n• 留言支持纯图、图文混排、回复时带图(被回复方也能看到)\n• 不影响小程序端:后端 messages 表加 image_url 可空字段,老数据不丢",
             'force_update'  => false,
             'min_supported' => 1,
         ]);

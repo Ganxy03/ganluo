@@ -159,6 +159,9 @@ data class AddMealReq(
 data class MessageDto(
     val id: Long,
     val content: String,
+    @Json(name = "image_url") val imageUrl: String? = null,
+    @Json(name = "image_width") val imageWidth: Int? = null,
+    @Json(name = "image_height") val imageHeight: Int? = null,
     @Json(name = "is_mine") val isMine: Boolean = false,
     @Json(name = "is_read") val isRead: Boolean = true,
     val time: String? = null,
@@ -168,7 +171,10 @@ data class MessageDto(
 @JsonClass(generateAdapter = true)
 data class SendMessageReq(
     val content: String,
-    @Json(name = "reply_to_id") val replyToId: Long? = null
+    @Json(name = "reply_to_id") val replyToId: Long? = null,
+    @Json(name = "image_url") val imageUrl: String? = null,
+    @Json(name = "image_width") val imageWidth: Int? = null,
+    @Json(name = "image_height") val imageHeight: Int? = null
 )
 
 // ===== Upload =====

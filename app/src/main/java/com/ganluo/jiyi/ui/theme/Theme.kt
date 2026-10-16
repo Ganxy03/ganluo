@@ -11,14 +11,22 @@ private val JiyiColorScheme = lightColorScheme(
     onPrimaryContainer = PrimaryDeep,
     secondary = PrimaryDeep,
     onSecondary = White,
+    tertiary = PrimaryContainer,
+    onTertiary = PrimaryDeep,
     background = Bg,
     onBackground = Text,
-    surface = Card,
+    surface = Surface,
     onSurface = Text,
-    surfaceVariant = PrimarySoft,
+    surfaceVariant = SurfaceVariant,
     onSurfaceVariant = TextSub,
+    surfaceContainerLowest = Bg,
+    surfaceContainerLow = Surface,
+    surfaceContainer = SurfaceContainer,
+    surfaceContainerHigh = PrimaryContainer,
+    surfaceContainerHighest = PrimarySoft,
     outline = Line,
-    error = PrimaryDeep,
+    outlineVariant = PrimaryContainer,
+    error = Error,
     onError = White
 )
 
@@ -27,6 +35,7 @@ fun JiyiTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = JiyiColorScheme,
         typography = JiyiTypography,
+        shapes = JiyiShapes,
         content = content
     )
 }

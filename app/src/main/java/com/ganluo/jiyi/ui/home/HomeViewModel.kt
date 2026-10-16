@@ -1,26 +1,46 @@
 package com.ganluo.jiyi.ui.home
 
+import android.content.Context
+import android.graphics.BitmapFactory
+import android.net.Uri
+import android.webkit.MimeTypeMap
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.ganluo.jiyi.data.remote.ApiService
 import com.ganluo.jiyi.data.remote.dto.HomeResp
 import com.ganluo.jiyi.data.remote.dto.MessageDto
 import com.ganluo.jiyi.data.repository.HomeRepository
 import com.ganluo.jiyi.data.repository.MessageRepository
 import com.ganluo.jiyi.data.repository.MoodRepository
+import com.ganluo.jiyi.ui.util.DateUtil
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import com.ganluo.jiyi.ui.util.DateUtil
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
+import okhttp3.RequestBody.Companion.asRequestBody
+import java.io.File
 import javax.inject.Inject
+
+/** 留言发图时的上传状态 */
+sealed class ComposerUpload {
+    data object Idle : ComposerUpload()
+    data object Loading : ComposerUpload()
+    data class Ready(val url: String, val width: Int, val height: Int) : ComposerUpload()
+    data class Failed(val message: String) : ComposerUpload()
+}
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val homeRepo: HomeRepository,
     private val moodRepo: MoodRepository,
     private val msgRepo: MessageRepository,
-    saved: SavedStateHandle
+    private val api: ApiService,
+    saved: SavedStateHandle,
+    @ApplicationContext private val appContext: Context
 ) : ViewModel() {
 
     private val _date = MutableStateFlow(DateUtil.toDateStr())
@@ -34,6 +54,10 @@ class HomeViewModel @Inject constructor(
 
     private val _error = MutableStateFlow<String?>(null)
     val error = _error.asStateFlow()
+
+    /** 留言弹窗里图片上传状态(Idle = 没选图) */
+    private val _composerUpload = MutableStateFlow<ComposerUpload>(ComposerUpload.Idle)
+    val composerUpload = _composerUpload.asStateFlow()
 
     fun setDate(d: String) {
         if (d == _date.value) return
@@ -50,7 +74,6 @@ class HomeViewModel @Inject constructor(
                 val h = homeRepo.load(_date.value)
                 _home.value = h
                 _error.value = null
-                // 看完当天留言就标已读
                 val unreadInDay = h.messages?.unreadInDay ?: 0
                 if (unreadInDay > 0) {
                     runCatching { msgRepo.readAll(_date.value) }
@@ -68,7 +91,7 @@ class HomeViewModel @Inject constructor(
             try {
                 moodRepo.add(type, content, _date.value)
                 load()
-            } catch (_: Exception) { /* error 已在外层 toast */ }
+            } catch (_: Exception) {}
             onDone()
         }
     }
@@ -78,10 +101,18 @@ class HomeViewModel @Inject constructor(
         load()
     }
 
-    fun sendMessage(content: String, replyToId: Long?, onDone: () -> Unit) {
+    fun sendMessage(
+        content: String,
+        replyToId: Long?,
+        imageUrl: String? = null,
+        imageWidth: Int? = null,
+        imageHeight: Int? = null,
+        onDone: () -> Unit
+    ) {
         viewModelScope.launch {
             try {
-                msgRepo.send(content, replyToId)
+                msgRepo.send(content, replyToId, imageUrl, imageWidth, imageHeight)
+                _composerUpload.value = ComposerUpload.Idle
                 load()
             } catch (_: Exception) {}
             onDone()
@@ -95,4 +126,56 @@ class HomeViewModel @Inject constructor(
 
     fun findMessage(id: Long): MessageDto? =
         _home.value?.messages?.list?.firstOrNull { it.id == id }
+
+    /** 留言时选图:POST /api/upload/image,拿到 url + 读图片宽高,写进 composerUpload */
+    fun uploadMessageImage(uri: Uri) = viewModelScope.launch {
+        if (_composerUpload.value is ComposerUpload.Loading) return@launch
+        _composerUpload.value = ComposerUpload.Loading
+        try {
+            val mime = appContext.contentResolver.getType(uri)
+                ?: MimeTypeMap.getSingleton().getMimeTypeFromExtension(
+                    uri.lastPathSegment?.substringAfterLast('.', "")
+                )
+                ?: "image/jpeg"
+            val ext = MimeTypeMap.getSingleton().getExtensionFromMimeType(mime) ?: "jpg"
+
+            val cacheFile = File(appContext.cacheDir, "msg_${System.currentTimeMillis()}.$ext")
+            appContext.contentResolver.openInputStream(uri).use { input ->
+                requireNotNull(input) { "无法读取图片" }
+                cacheFile.outputStream().use { output -> input.copyTo(output) }
+            }
+            if (cacheFile.length() > 5 * 1024 * 1024) {
+                cacheFile.delete()
+                _composerUpload.value = ComposerUpload.Failed("图片不能超过 5MB")
+                return@launch
+            }
+
+            // 读原图宽高(只读 header,内存友好)
+            val (w, h) = readImageSize(cacheFile)
+
+            val body = cacheFile.asRequestBody(mime.toMediaTypeOrNull())
+            val part = MultipartBody.Part.createFormData("file", cacheFile.name, body)
+            val resp = api.uploadImage(part)
+
+            cacheFile.delete()
+            _composerUpload.value = ComposerUpload.Ready(resp.url, w, h)
+        } catch (e: Exception) {
+            _composerUpload.value = ComposerUpload.Failed("上传失败:${e.message}")
+        }
+    }
+
+    /** 取消已选图片 */
+    fun clearComposerImage() {
+        _composerUpload.value = ComposerUpload.Idle
+    }
+
+    private fun readImageSize(file: File): Pair<Int, Int> {
+        return try {
+            val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(file.absolutePath, opts)
+            opts.outWidth.coerceAtLeast(1) to opts.outHeight.coerceAtLeast(1)
+        } catch (_: Exception) {
+            1080 to 1080
+        }
+    }
 }

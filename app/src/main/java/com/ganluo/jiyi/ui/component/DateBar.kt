@@ -21,13 +21,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.ganluo.jiyi.ui.theme.Card
-import com.ganluo.jiyi.ui.theme.Primary
-import com.ganluo.jiyi.ui.theme.TextLight
+import com.ganluo.jiyi.ui.theme.Spacing
 import com.ganluo.jiyi.ui.util.DateUtil
 
+/**
+ * 日期选择条:左右圆形按钮 + 中间日期 pill(可点)
+ * 按钮底色 surfaceContainerHigh,active 时 tint primary
+ */
 @Composable
 fun DateBar(
     date: String,
@@ -40,64 +41,75 @@ fun DateBar(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 8.dp),
+            .padding(vertical = Spacing.sm),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        // ‹
+        // ‹ 前一天
         Box(
             modifier = Modifier
                 .size(40.dp)
                 .clip(CircleShape)
-                .background(Card)
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                 .clickable(onClick = onPrev),
             contentAlignment = Alignment.Center
         ) {
-            Icon(Icons.Filled.ChevronLeft, contentDescription = "前一天", tint = Primary)
+            Icon(
+                Icons.Filled.ChevronLeft,
+                contentDescription = "前一天",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
 
-        // 中间日期(可点弹日历,这里用 onPick 占位,完整日期选择器用 Material3 DatePicker)
+        // 中间日期 pill
         Row(
             modifier = Modifier
+                .clip(MaterialTheme.shapes.large)
+                .background(MaterialTheme.colorScheme.surfaceContainerLow)
                 .clickable(onClick = onPick)
-                .padding(horizontal = 24.dp, vertical = 4.dp),
+                .padding(horizontal = Spacing.xl, vertical = Spacing.sm),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     text = DateUtil.friendlyDate(date),
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = date,
                         style = MaterialTheme.typography.bodySmall,
-                        color = TextLight
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Icon(
                         Icons.Filled.CalendarToday,
                         contentDescription = null,
-                        tint = TextLight,
-                        modifier = Modifier.size(12.dp).padding(start = 4.dp)
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .padding(start = Spacing.xs)
+                            .size(12.dp)
                     )
                 }
             }
         }
 
-        // ›
+        // › 后一天
         Box(
             modifier = Modifier
                 .size(40.dp)
                 .clip(CircleShape)
-                .background(Card)
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                 .clickable(enabled = !isToday, onClick = onNext),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 Icons.Filled.ChevronRight,
                 contentDescription = "后一天",
-                tint = if (isToday) TextLight else Primary
+                tint = if (isToday)
+                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                else
+                    MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
