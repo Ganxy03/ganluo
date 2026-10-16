@@ -17,10 +17,6 @@ android {
         versionCode = 8
         versionName = "1.0.7"
 
-        // 后端基址,改这里切环境(线上 / 内网 / mock)
-        buildConfigField("String", "API_BASE_URL", "\"https://y.bobay.top\"")
-        buildConfigField("String", "BUILD_FLAVOR", "\"debug\"")
-
         // NDK ABI 过滤,减小 APK 体积(高德 SDK 包含 .so)
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
@@ -39,10 +35,20 @@ android {
         }
     }
 
+    // 默认后端:线上 https://y.bobay.top
+    // 切换到本机后端:在项目根目录的 local.properties 末尾加一行:
+    //   API_BASE_URL=http://10.0.2.2:8000   # 模拟器看 PC
+    //   API_BASE_URL=http://192.168.x.x:8000 # 真机走 LAN
+    //   API_BASE_URL=http://y.bobay.top      # 默认(线上)
+    val defaultApiBase = "https://y.bobay.top"
+    val apiBaseUrl = (project.findProperty("API_BASE_URL") as String?) ?: defaultApiBase
+
     buildTypes {
         debug {
             isMinifyEnabled = false
             applicationIdSuffix = ".debug"
+            buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
+            buildConfigField("String", "BUILD_FLAVOR", "\"debug\"")
             // Debug 用 debug key(从 ~/.gradle/gradle.properties 读)
             val debugKey = (project.findProperty("AMAP_KEY_DEBUG") as String?)
                 ?: "REPLACE_ME_DEBUG_KEY"
@@ -56,6 +62,8 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            buildConfigField("String", "API_BASE_URL", "\"$defaultApiBase\"")
+            buildConfigField("String", "BUILD_FLAVOR", "\"release\"")
             // Release 用 release key
             val releaseKey = (project.findProperty("AMAP_KEY_RELEASE") as String?)
                 ?: "REPLACE_ME_RELEASE_KEY"

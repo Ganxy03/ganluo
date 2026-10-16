@@ -15,8 +15,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.ganluo.jiyi.data.remote.dto.MessageDto
+import com.ganluo.jiyi.ui.theme.JiyiTheme
 import com.ganluo.jiyi.ui.theme.Primary
 import com.ganluo.jiyi.ui.theme.PrimarySoft
 import com.ganluo.jiyi.ui.theme.TextLight
@@ -84,5 +86,29 @@ fun MessageBubble(
                 style = MaterialTheme.typography.bodySmall
             )
         }
+    }
+}
+
+// ===== Preview =====
+
+@Preview(showBackground = true, name = "我发的")
+@Composable
+private fun PreviewMine() {
+    JiyiTheme {
+        MessageBubble(
+            msg = MessageDto(id = 1, content = "今天想吃火锅", time = "12:34", isMine = true, isRead = true),
+            onClick = {}, onLongClick = {}
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "TA 发的 + 未读")
+@Composable
+private fun PreviewTheirs() {
+    JiyiTheme {
+        MessageBubble(
+            msg = MessageDto(id = 2, content = "好啊!", time = "12:35", isMine = false, isRead = false),
+            onClick = {}, onLongClick = {}
+        )
     }
 }

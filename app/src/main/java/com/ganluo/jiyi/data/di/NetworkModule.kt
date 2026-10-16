@@ -28,8 +28,10 @@ object NetworkModule {
     @Provides @Singleton
     fun provideOkHttp(authInterceptor: AuthInterceptor): OkHttpClient {
         val logger = HttpLoggingInterceptor().apply {
-            level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BASIC
+            level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BODY
                     else HttpLoggingInterceptor.Level.NONE
+            // 隐藏 JWT,避免 Logcat 泄露
+            redactHeader("Authorization")
         }
         return OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)

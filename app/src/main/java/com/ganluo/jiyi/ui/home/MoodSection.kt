@@ -34,12 +34,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ganluo.jiyi.data.remote.dto.MoodDto
 import com.ganluo.jiyi.ui.component.Avatar
 import com.ganluo.jiyi.ui.component.JiyiCard
 import com.ganluo.jiyi.ui.component.SectionTitle
+import com.ganluo.jiyi.ui.theme.JiyiTheme
 import com.ganluo.jiyi.ui.theme.Primary
 import com.ganluo.jiyi.ui.theme.PrimaryDeep
 import com.ganluo.jiyi.ui.theme.PrimarySoft
@@ -245,5 +247,26 @@ private fun MoodCell(
             fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
             maxLines = 1
         )
+    }
+}
+
+// ===== Preview =====
+
+@Preview(showBackground = true, name = "心情选择弹窗(8 个)")
+@Composable
+private fun PreviewMoodPicker() {
+    JiyiTheme {
+        MoodPickerSheet(visible = true, onCancel = {}, onConfirm = { _, _ -> })
+    }
+}
+
+@Preview(showBackground = true, name = "心情日记(空)")
+@Composable
+private fun PreviewMoodSectionEmpty() {
+    JiyiTheme {
+        JiyiCard {
+            SectionTitle(label = "心情日记", action = "＋ 记录", onAction = {})
+            Text("这天还没有记录", color = TextLight, fontSize = 12.sp)
+        }
     }
 }
