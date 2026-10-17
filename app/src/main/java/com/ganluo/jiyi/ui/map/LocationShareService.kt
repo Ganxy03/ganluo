@@ -68,6 +68,15 @@ class LocationShareService : Service() {
         }
         if (shareJob?.isActive == true) return START_STICKY
         shareJob = scope.launch {
+            // 1) 启动时立即 requestOnce 一次:1-3s 拿到第一个 fix → 立即上传
+            //    避免「开了共享但地图没自己」的问题(1.0.14 回归 fix)
+            runCatching {
+                amap.requestOnce().collect { fix ->
+                    handleFix(fix)
+                    return@collect
+                }
+            }
+            // 2) 然后切到 30s 持续定位 + 智能节流
             amap.startContinuous(intervalMs = 30_000L).collectLatest { fix ->
                 handleFix(fix)
             }
