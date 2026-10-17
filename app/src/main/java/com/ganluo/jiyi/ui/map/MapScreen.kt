@@ -45,21 +45,25 @@ import com.ganluo.jiyi.ui.theme.Spacing
  *   - 后台持续定位
  */
 @Composable
-fun MapScreen() {
+fun MapScreen(onMenuClick: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        CompactTopBar(title = "地图", actions = {
-            IconButton(onClick = { /* TODO 刷新 */ }) {
-                Icon(
-                    Icons.Filled.Refresh,
-                    contentDescription = "刷新",
-                    tint = MaterialTheme.colorScheme.onSurface
-                )
+        CompactTopBar(
+            title = "地图",
+            onMenuClick = onMenuClick,
+            actions = {
+                IconButton(onClick = { /* TODO 刷新 */ }) {
+                    Icon(
+                        Icons.Filled.Refresh,
+                        contentDescription = "刷新",
+                        tint = MaterialTheme.colorScheme.onSurface
+                    )
+                }
             }
-        })
+        )
 
         // 对方卡片
         PartnerLocationCard(
@@ -183,5 +187,5 @@ private fun PartnerLocationCard(
 @Preview(showBackground = true, name = "地图页")
 @Composable
 private fun PreviewMap() {
-    JiyiTheme { MapScreen() }
+    JiyiTheme { MapScreen(onMenuClick = {}) }
 }

@@ -8,7 +8,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -23,13 +28,15 @@ import com.ganluo.jiyi.ui.theme.Spacing
  * 高度 48dp,surfaceContainer 底色,左标题右 action。
  * 内部走 statusBarsPadding 让状态栏透出。
  *
- * @param title   标题(左对齐,留出 actions 空间)
- * @param actions 右侧操作区(IconButton 等)
+ * @param title       标题(左对齐,留出 actions 空间)
+ * @param actions     右侧操作区(IconButton 等)
+ * @param onMenuClick 非空时在 actions 最左侧显示 ☰ 汉堡按钮(用于右滑抽屉)
  */
 @Composable
 fun CompactTopBar(
     title: String,
-    actions: @Composable RowScope.() -> Unit = {}
+    actions: @Composable RowScope.() -> Unit = {},
+    onMenuClick: (() -> Unit)? = null
 ) {
     Box(
         modifier = Modifier
@@ -51,6 +58,18 @@ fun CompactTopBar(
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.weight(1f)
             )
+            if (onMenuClick != null) {
+                IconButton(
+                    onClick = onMenuClick,
+                    modifier = Modifier.size(40.dp)
+                ) {
+                    Icon(
+                        Icons.Filled.Menu,
+                        contentDescription = "菜单",
+                        tint = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
             actions()
         }
     }

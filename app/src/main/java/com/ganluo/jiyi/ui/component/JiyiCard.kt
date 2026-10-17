@@ -26,11 +26,14 @@ import com.ganluo.jiyi.ui.theme.Spacing
 
 /**
  * 通用卡片:surfaceContainer 配色 + 0 阴影(M3 Expressive 推荐用色阶分层而非阴影)
+ *
+ * content 走 ColumnScope,所以调用方可以在内部用 `Modifier.weight(1f)` 来分配
+ * 弹性高度(比如首页的心情日记 + 留言提醒两块各占一半 + 内部滚动)。
  */
 @Composable
 fun JiyiCard(
     modifier: Modifier = Modifier,
-    content: @Composable () -> Unit
+    content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit
 ) {
     Surface(
         modifier = modifier.fillMaxWidth(),

@@ -65,6 +65,7 @@ import com.ganluo.jiyi.update.UpdateCheckResult
 
 @Composable
 fun ProfileScreen(
+    onMenuClick: () -> Unit,
     onLoggedOut: () -> Unit,
     vm: ProfileViewModel = hiltViewModel()
 ) {
@@ -103,7 +104,7 @@ fun ProfileScreen(
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbar) },
-        topBar = { CompactTopBar(title = "我的") }
+        topBar = { CompactTopBar(title = "我的", onMenuClick = onMenuClick) }
     ) { padding ->
         Column(
             modifier = Modifier

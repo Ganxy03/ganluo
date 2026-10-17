@@ -7,11 +7,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
@@ -56,7 +59,7 @@ val MOODS = listOf(
     MoodDef("angry", "生气", "😠"),
     MoodDef("anxious", "焦虑", "😰")
 )
-private val MOOD_EMOJI = MOODS.associate { it.type to it.emoji }
+internal val MOOD_EMOJI = MOODS.associate { it.type to it.emoji }
 
 @Composable
 fun MoodSection(
@@ -68,35 +71,62 @@ fun MoodSection(
     partnerMoods: List<MoodDto>,
     showAdd: Boolean,
     onAdd: () -> Unit,
-    onLongPressMine: (MoodDto) -> Unit
+    onLongPressMine: (MoodDto) -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    JiyiCard {
+    JiyiCard(modifier = modifier) {
+        // 卡片内部:固定标题 + 弹性滚动区,这样心情再多也不会撑出屏
         SectionTitle(label = "心情日记", action = if (showAdd) "＋ 记录" else null, onAction = onAdd)
 
-        if (partnerNickname != null) {
-            PersonHeader(name = "TA", nickname = partnerNickname, avatar = partnerAvatar)
-            MoodList(moods = partnerMoods, onLongPress = null)
-        }
+        LazyColumn(modifier = Modifier.fillMaxSize()) {
+            if (partnerNickname != null) {
+                item(key = "header_partner") {
+                    PersonHeader(name = "TA", nickname = partnerNickname, avatar = partnerAvatar)
+                }
+                if (partnerMoods.isEmpty()) {
+                    item(key = "partner_empty") {
+                        Text(
+                            "TA 这天还没有记录",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(vertical = Spacing.xs)
+                        )
+                    }
+                } else {
+                    items(partnerMoods, key = { "p_${it.id}" }) { m ->
+                        MoodRow(mood = m, onLongPress = null)
+                    }
+                }
+            }
 
-        PersonHeader(name = "我", nickname = meNickname, avatar = meAvatar)
-        if (myMoods.isEmpty()) {
-            Text(
-                "这天还没有记录",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(vertical = Spacing.xs)
-            )
-        } else {
-            MoodList(moods = myMoods, onLongPress = { onLongPressMine(it) })
-            Text(
-                "长按一条可以删除",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.labelSmall,
-                textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = Spacing.sm)
-            )
+            item(key = "header_me") {
+                PersonHeader(name = "我", nickname = meNickname, avatar = meAvatar)
+            }
+            if (myMoods.isEmpty()) {
+                item(key = "me_empty") {
+                    Text(
+                        "这天还没有记录",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(vertical = Spacing.xs)
+                    )
+                }
+            } else {
+                items(myMoods, key = { "m_${it.id}" }) { m ->
+                    MoodRow(mood = m, onLongPress = { onLongPressMine(m) })
+                }
+                item(key = "tip") {
+                    Text(
+                        "长按一条可以删除",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelSmall,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = Spacing.sm)
+                    )
+                }
+            }
         }
     }
 }
@@ -119,47 +149,43 @@ private fun PersonHeader(name: String, nickname: String?, avatar: String?) {
 }
 
 @Composable
-private fun MoodList(moods: List<MoodDto>, onLongPress: ((MoodDto) -> Unit)?) {
-    Column {
-        moods.forEach { m ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = Spacing.xs),
-                verticalAlignment = Alignment.Top
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(28.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primaryContainer),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(MOOD_EMOJI[m.moodType] ?: "🙂", fontSize = 16.sp)
-                }
-                Spacer(Modifier.width(Spacing.sm))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = m.moodLabel,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    if (!m.content.isNullOrBlank()) {
-                        Text(
-                            text = m.content,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                }
+private fun MoodRow(mood: MoodDto, onLongPress: ((MoodDto) -> Unit)?) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = Spacing.xs),
+        verticalAlignment = Alignment.Top
+    ) {
+        Box(
+            modifier = Modifier
+                .size(28.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.primaryContainer),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(MOOD_EMOJI[mood.moodType] ?: "🙂", fontSize = 16.sp)
+        }
+        Spacer(Modifier.width(Spacing.sm))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = mood.moodLabel,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            if (!mood.content.isNullOrBlank()) {
                 Text(
-                    text = DateUtil.timeOf(m.createdAt).ifBlank { m.time ?: "" },
+                    text = mood.content,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall
                 )
             }
         }
+        Text(
+            text = DateUtil.timeOf(mood.createdAt).ifBlank { mood.time ?: "" },
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodySmall
+        )
     }
 }
 

@@ -59,6 +59,24 @@ class HomeViewModel @Inject constructor(
     private val _composerUpload = MutableStateFlow<ComposerUpload>(ComposerUpload.Idle)
     val composerUpload = _composerUpload.asStateFlow()
 
+    /** 微信式底部输入栏:输入框文字 */
+    private val _composerText = MutableStateFlow("")
+    val composerText = _composerText.asStateFlow()
+
+    /** 微信式底部输入栏:引用回复的目标消息 */
+    private val _replyTo = MutableStateFlow<MessageDto?>(null)
+    val replyTo = _replyTo.asStateFlow()
+
+    fun setComposerText(t: String) { _composerText.value = t }
+    fun appendEmoji(emoji: String) { _composerText.value = (_composerText.value + emoji).take(500) }
+    fun setReplyTo(msg: MessageDto?) { _replyTo.value = msg }
+    fun clearReply() { _replyTo.value = null }
+    fun clearComposer() {
+        _composerText.value = ""
+        _replyTo.value = null
+        _composerUpload.value = ComposerUpload.Idle
+    }
+
     fun setDate(d: String) {
         if (d == _date.value) return
         _date.value = d
@@ -107,12 +125,12 @@ class HomeViewModel @Inject constructor(
         imageUrl: String? = null,
         imageWidth: Int? = null,
         imageHeight: Int? = null,
-        onDone: () -> Unit
+        onDone: () -> Unit = {}
     ) {
         viewModelScope.launch {
             try {
                 msgRepo.send(content, replyToId, imageUrl, imageWidth, imageHeight)
-                _composerUpload.value = ComposerUpload.Idle
+                clearComposer()
                 load()
             } catch (_: Exception) {}
             onDone()

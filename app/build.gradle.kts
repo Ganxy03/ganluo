@@ -14,8 +14,8 @@ android {
         applicationId = "cn.ganluo.jiyi"
         minSdk = 26
         targetSdk = 35
-        versionCode = 10
-        versionName = "1.0.9"
+        versionCode = 11
+        versionName = "1.0.10"
 
         // NDK ABI 过滤,减小 APK 体积(高德 SDK 包含 .so)
         ndk {
