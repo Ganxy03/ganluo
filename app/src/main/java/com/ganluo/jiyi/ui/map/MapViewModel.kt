@@ -1,11 +1,13 @@
 package com.ganluo.jiyi.ui.map
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ganluo.jiyi.data.remote.dto.LocationDto
 import com.ganluo.jiyi.data.repository.HomeRepository
 import com.ganluo.jiyi.data.repository.LocationRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -14,16 +16,19 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
- * 地图 + 位置共享 ViewModel:
- *  - 加载我和伴侣的位置
- *  - 30s 一次轮询(只在地图页可见时启动 / 离开时停止)
- *  - 共享开关 → 持续定位 + 30s 一次上传
+ * 地图 + 位置共享 ViewModel(1.0.12):
+ *  - 加载我和伴侣的位置(load 一次)
+ *  - 30s 一次轮询(进入地图页时启动 / 离开时停止)
+ *  - 后台共享 → LocationShareService(1.0.12 重构:不依赖 viewModelScope,Service 进程内跑)
+ *  - 共享状态通过 [LocationSharingState] 单例同步给 UI
  */
 @HiltViewModel
 class MapViewModel @Inject constructor(
     private val homeRepo: HomeRepository,
     private val locRepo: LocationRepository,
-    private val amap: AmapLocationProvider
+    private val amap: AmapLocationProvider,
+    private val sharingState: LocationSharingState,
+    @ApplicationContext private val appContext: Context
 ) : ViewModel() {
 
     data class UiState(
@@ -40,17 +45,23 @@ class MapViewModel @Inject constructor(
     val state = _state.asStateFlow()
 
     private var pollJob: Job? = null
-    private var shareJob: Job? = null
 
-    init { load() }
+    init {
+        load()
+        // 同步 Service 状态到 UI(Service 启动 / 销毁都触发)
+        viewModelScope.launch {
+            sharingState.sharing.collect { active ->
+                _state.value = _state.value.copy(sharing = active)
+            }
+        }
+    }
 
-    /** 拉一次(首页用) */
+    /** 拉一次(进入页面、点刷新) */
     fun load() {
         viewModelScope.launch {
             _state.value = _state.value.copy(loading = true, lastError = null)
             try {
                 val both = locRepo.both()
-                // 拿伴侣昵称 + 头像(用 home 接口返回的 partner)
                 val home = runCatching { homeRepo.load(java.time.LocalDate.now().toString()) }.getOrNull()
                 _state.value = _state.value.copy(
                     loading = false,
@@ -85,26 +96,18 @@ class MapViewModel @Inject constructor(
         pollJob = null
     }
 
-    /** 开启共享:持续定位 + 每 30s 上传一次 */
+    /** 开启后台共享 → 启动 Foreground Service */
     fun startSharing() {
-        if (_state.value.sharing) return
-        _state.value = _state.value.copy(sharing = true)
-        shareJob = viewModelScope.launch {
-            amap.startContinuous(intervalMs = 30_000L).collect { fix ->
-                runCatching { locRepo.upload(fix.lat, fix.lng, fix.accuracy) }
-                    .onSuccess { _state.value = _state.value.copy(me = it) }
-            }
-        }
+        if (sharingState.sharing.value) return
+        LocationShareService.start(appContext)
     }
 
-    /** 关闭共享 */
+    /** 关闭后台共享 */
     fun stopSharing() {
-        _state.value = _state.value.copy(sharing = false)
-        shareJob?.cancel()
-        shareJob = null
+        LocationShareService.stop(appContext)
     }
 
-    /** 手动"定位我"按钮:拉一次,定位成功就上传 */
+    /** 手动"定位我":拉一次,定位成功就上传 */
     fun locateMe() {
         viewModelScope.launch {
             try {
@@ -122,6 +125,5 @@ class MapViewModel @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         stopPolling()
-        stopSharing()
     }
 }

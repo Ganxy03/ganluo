@@ -63,17 +63,18 @@ class AmapLocationProvider @Inject constructor(
         awaitClose { client.stopLocation(); client.onDestroy() }
     }
 
-    /** 持续定位(共享位置时用),调用方负责生命周期 */
+    /** 持续定位(共享位置时用),调用方负责生命周期。intervalMs 真的下到 SDK,30s 才回调一次 */
     @SuppressLint("MissingPermission")
     @RequiresPermission(anyOf = [Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION])
     fun startContinuous(intervalMs: Long = 30_000L): Flow<AmapLocationFix> = callbackFlow {
         val client = AMapLocationClient(ctx.applicationContext)
         val opt = AMapLocationClientOption().apply {
             locationMode = AMapLocationClientOption.AMapLocationMode.Hight_Accuracy
-            // 高德 SDK 没有"间隔"字段,持续模式由 interval 控制 startLocation 频率
             isOnceLocation = false
             isNeedAddress = false
             isWifiScan = false
+            // 关键:告诉 SDK 每 30s 才回调一次,默认是 2s,会耗电 + 刷后端
+            interval = intervalMs
         }
         client.setLocationOption(opt)
         val listener = AMapLocationListener { loc: AMapLocation? ->

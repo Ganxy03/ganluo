@@ -28,6 +28,11 @@
     <!-- 通知 (更新提示 / 留言) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- 前台服务:后台位置共享 (1.0.12) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- API 34+ 必须声明具体 type -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+
     <uses-feature
         android:name="android.hardware.bluetooth_le"
         android:required="false" />
@@ -72,5 +77,11 @@
         <meta-data
             android:name="com.amap.api.v2.apikey"
             android:value="${AMAP_KEY}" />
+
+        <!-- 后台位置共享前台服务 (1.0.12) -->
+        <service
+            android:name=".ui.map.LocationShareService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
     </application>
 </manifest>
