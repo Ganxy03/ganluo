@@ -15,10 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -50,14 +47,12 @@ import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
 
 /**
- * 地图页(1.0.11):
+ * 地图页(1.0.14):
  *  - 顶部 TA 信息卡(头像 + 距离 + 上次更新时间)
  *  - 中部 高德 3D MapView(显示双方 marker)
- *  - 底部 操作区
- *      [📍 共享我的位置 开关] [🎯 定位我 一次]
+ *  - 底部 留白(1.0.14 删了共享/定位我按钮 → 共享 toggle 在 Profile 页)
  *  - 进入页面:申请定位权限 → 30s 轮询 /both
- *  - 离开页面:停轮询,共享开关可独立保留(用户预期)
- *
+ *  - 离开页面:停轮询
  *  - 顶栏 [🔄] 手动刷新
  *  - 顶栏 [☰] 抽屉(由 AppRoot 注入)
  */
@@ -176,56 +171,12 @@ fun MapScreen(
             }
         }
 
-        // 底部按钮
-        Row(
+        // 底部留白(1.0.14 去掉共享/定位我按钮,开关已上移到 Profile)
+        Spacer(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = Spacing.screenH, vertical = Spacing.md),
-            horizontalArrangement = Arrangement.spacedBy(Spacing.md)
-        ) {
-            Button(
-                onClick = {
-                    if (state.sharing) vm.stopSharing()
-                    else vm.startSharing()
-                },
-                modifier = Modifier.weight(1f).height(48.dp),
-                shape = MaterialTheme.shapes.medium,
-                colors = if (state.sharing) ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.errorContainer,
-                    contentColor = MaterialTheme.colorScheme.onErrorContainer
-                ) else ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
-                )
-            ) {
-                Icon(
-                    Icons.Filled.LocationOn,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(Modifier.size(Spacing.xs))
-                Text(if (state.sharing) "停止共享" else "共享我的位置")
-            }
-
-            Button(
-                onClick = { vm.locateMe() },
-                enabled = perms.allPermissionsGranted,
-                modifier = Modifier.weight(1f).height(48.dp),
-                shape = MaterialTheme.shapes.medium,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    contentColor = MaterialTheme.colorScheme.onSurface
-                )
-            ) {
-                Icon(
-                    Icons.Filled.MyLocation,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(Modifier.size(Spacing.xs))
-                Text("定位我")
-            }
-        }
+                .height(Spacing.md)
+        )
     }
 
     Box(modifier = Modifier.fillMaxSize()) {

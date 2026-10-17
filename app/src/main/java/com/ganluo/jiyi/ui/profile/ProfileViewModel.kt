@@ -10,6 +10,8 @@ import com.ganluo.jiyi.data.remote.dto.BindRequestDto
 import com.ganluo.jiyi.data.remote.dto.UserDto
 import com.ganluo.jiyi.data.repository.AuthRepository
 import com.ganluo.jiyi.data.repository.BindRepository
+import com.ganluo.jiyi.ui.map.LocationShareService
+import com.ganluo.jiyi.ui.map.LocationSharingState
 import com.ganluo.jiyi.update.AppUpdateChecker
 import com.ganluo.jiyi.update.UpdateCheckResult
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -29,6 +31,7 @@ class ProfileViewModel @Inject constructor(
     private val bind: BindRepository,
     private val appUpdateChecker: AppUpdateChecker,
     private val api: ApiService,
+    private val sharingState: LocationSharingState,
     @ApplicationContext private val appContext: Context
 ) : ViewModel() {
 
@@ -54,6 +57,17 @@ class ProfileViewModel @Inject constructor(
     // 头像上传状态(null=空闲)
     private val _avatarUploading = MutableStateFlow(false)
     val avatarUploading = _avatarUploading.asStateFlow()
+
+    // 后台位置共享开关(1.0.14 移到 Profile)
+    val sharing = sharingState.sharing
+
+    fun toggleSharing() {
+        if (sharingState.sharing.value) {
+            LocationShareService.stop(appContext)
+        } else {
+            LocationShareService.start(appContext)
+        }
+    }
 
     fun load() = viewModelScope.launch {
         try {

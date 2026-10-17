@@ -148,19 +148,24 @@ class LocationShareService : Service() {
             },
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
-        val title = when (mode) {
-            Mode.REAL_TIME -> "吉壹 · 位置共享 · 实时"
-            Mode.SAVING    -> "吉壹 · 位置共享 · 省电"
-        }
+        // 1.0.14:通知改低调 — 标题只显示应用名,内容只显示模式
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_marker_me)
-            .setContentTitle(title)
-            .setContentText(subText)
+            .setContentTitle("吉壹")
+            .setContentText(
+                when (mode) {
+                    Mode.REAL_TIME -> "运行中"
+                    Mode.SAVING    -> "运行中(省电)"
+                }
+            )
+            .setSubText(subText)  // 二级文本:上次上传时间,默认折叠不可见
             .setContentIntent(openIntent)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .addAction(0, "停止共享", stopIntent)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setShowWhen(false)
+            .setSilent(true)
+            .addAction(0, "停止", stopIntent)
+            .setPriority(NotificationCompat.PRIORITY_MIN)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .build()
     }
@@ -170,11 +175,13 @@ class LocationShareService : Service() {
         val mgr = getSystemService(NotificationManager::class.java) ?: return
         if (mgr.getNotificationChannel(CHANNEL_ID) != null) return
         val ch = NotificationChannel(
-            CHANNEL_ID, "位置共享",
-            NotificationManager.IMPORTANCE_LOW
+            CHANNEL_ID, "应用运行",
+            NotificationManager.IMPORTANCE_MIN
         ).apply {
-            description = "后台位置共享时显示"
+            description = "应用后台运行提示"
             setShowBadge(false)
+            enableVibration(false)
+            setSound(null, null)
         }
         mgr.createNotificationChannel(ch)
     }

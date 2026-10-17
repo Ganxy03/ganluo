@@ -24,6 +24,8 @@
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- 后台定位:Android 10+ 用户必须单独授"始终允许" (1.0.14) -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
 
     <!-- 通知 (更新提示 / 留言) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />

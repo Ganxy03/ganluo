@@ -36,6 +36,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -76,6 +77,7 @@ fun ProfileScreen(
     val updateState by vm.updateState.collectAsStateWithLifecycle()
     val updateChecking by vm.updateChecking.collectAsStateWithLifecycle()
     val avatarUploading by vm.avatarUploading.collectAsStateWithLifecycle()
+    val sharing by vm.sharing.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
 
@@ -308,6 +310,41 @@ fun ProfileScreen(
                 JiyiCard {
                     SectionTitle(label = "我发出的请求")
                     outgoing.forEach { r -> OutgoingRow(r, vm) }
+                }
+            }
+
+            // ---- 位置共享(1.0.14) ----
+            Spacer(Modifier.height(Spacing.md))
+            JiyiCard {
+                SectionTitle(label = "位置共享")
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "共享我的位置给 TA",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(Modifier.height(Spacing.xs))
+                        Text(
+                            if (sharing) {
+                                "✓ 共享中 · TA 在地图页能看到你的实时位置"
+                            } else {
+                                "开启后,TA 在地图页能看到你的位置(后台静默运行)"
+                            },
+                            color = if (sharing) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    Spacer(Modifier.width(Spacing.md))
+                    Switch(
+                        checked = sharing,
+                        onCheckedChange = { vm.toggleSharing() }
+                    )
                 }
             }
 
