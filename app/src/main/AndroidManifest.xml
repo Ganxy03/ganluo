@@ -67,5 +67,10 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+
+        <!-- 高德地图 / 定位 Key(debug+release 共用,已在 AMap 控制台绑定 SHA1) -->
+        <meta-data
+            android:name="com.amap.api.v2.apikey"
+            android:value="${AMAP_KEY}" />
     </application>
 </manifest>

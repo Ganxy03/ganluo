@@ -10,6 +10,9 @@ import com.ganluo.jiyi.data.remote.dto.CancelBindReq
 import com.ganluo.jiyi.data.remote.dto.Envelope
 import com.ganluo.jiyi.data.remote.dto.HandleBindReq
 import com.ganluo.jiyi.data.remote.dto.HomeResp
+import com.ganluo.jiyi.data.remote.dto.LocationBothDto
+import com.ganluo.jiyi.data.remote.dto.LocationDto
+import com.ganluo.jiyi.data.remote.dto.LocationUploadReq
 import com.ganluo.jiyi.data.remote.dto.LoginAppReq
 import com.ganluo.jiyi.data.remote.dto.LoginAppResp
 import com.ganluo.jiyi.data.remote.dto.MealDto
@@ -119,4 +122,17 @@ interface ApiService {
     // ===== Update (本项目新增端点) =====
     @GET("api/app/version")
     suspend fun appVersion(): AppVersionDto
+
+    // ===== Location (1.0.11) =====
+    @POST("api/location/upload")
+    suspend fun uploadLocation(@Body req: LocationUploadReq): LocationDto
+
+    @GET("api/location/me")
+    suspend fun myLocation(): LocationDto?
+
+    @GET("api/location/partner")
+    suspend fun partnerLocation(): LocationDto?
+
+    @GET("api/location/both")
+    suspend fun bothLocations(): LocationBothDto
 }

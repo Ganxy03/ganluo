@@ -196,3 +196,36 @@ data class AppVersionDto(
     @Json(name = "force_update") val forceUpdate: Boolean = false,
     @Json(name = "min_supported") val minSupported: Int = 0
 )
+
+// ===== Location =====
+
+/**
+ * 单点位置(me / partner 共用)
+ *  - lat / lng: WGS-84,Android 端拿到 GCJ-02 时由调用方转换
+ *  - updated_at: 后端 datetime 字串,客户端自己解析
+ */
+@JsonClass(generateAdapter = true)
+data class LocationDto(
+    val lat: Double,
+    val lng: Double,
+    val accuracy: Float = 0f,
+    @Json(name = "updated_at") val updatedAt: String? = null
+)
+
+/**
+ * /api/location/both 的响应:{ me: LocationDto?, partner: LocationDto? }
+ *  - 上传时用不到,只在地图页一次性拉
+ */
+@JsonClass(generateAdapter = true)
+data class LocationBothDto(
+    val me: LocationDto? = null,
+    val partner: LocationDto? = null
+)
+
+/** 上传位置请求体 */
+@JsonClass(generateAdapter = true)
+data class LocationUploadReq(
+    val lat: Double,
+    val lng: Double,
+    val accuracy: Float = 0f
+)

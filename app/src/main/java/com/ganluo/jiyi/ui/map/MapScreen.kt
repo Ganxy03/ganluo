@@ -1,5 +1,6 @@
 package com.ganluo.jiyi.ui.map
 
+import android.Manifest
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,38 +15,84 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.amap.api.maps.AMap
+import com.ganluo.jiyi.data.remote.dto.LocationDto
 import com.ganluo.jiyi.ui.component.Avatar
 import com.ganluo.jiyi.ui.component.CompactTopBar
 import com.ganluo.jiyi.ui.theme.JiyiTheme
 import com.ganluo.jiyi.ui.theme.Spacing
+import com.google.accompanist.permissions.ExperimentalPermissionsApi
+import com.google.accompanist.permissions.rememberMultiplePermissionsState
 
 /**
- * 地图页:1.0.8 调试版,先做 UI 骨架
- * - 顶部:对方位置信息卡(头像 + 距离 + 最后更新时间)
- * - 中部:地图占位区(集成高德 SDK 后替换为 MapView)
- * - 底部:操作区(刷新/共享我的位置)
+ * 地图页(1.0.11):
+ *  - 顶部 TA 信息卡(头像 + 距离 + 上次更新时间)
+ *  - 中部 高德 3D MapView(显示双方 marker)
+ *  - 底部 操作区
+ *      [📍 共享我的位置 开关] [🎯 定位我 一次]
+ *  - 进入页面:申请定位权限 → 30s 轮询 /both
+ *  - 离开页面:停轮询,共享开关可独立保留(用户预期)
  *
- * TODO(1.0.9): 用高德 3D MapView + AMapLocation 替换地图占位,实现:
- *   - 双方实时位置(websocket / 轮询)
- *   - 后端 location API(#27)
- *   - 后台持续定位
+ *  - 顶栏 [🔄] 手动刷新
+ *  - 顶栏 [☰] 抽屉(由 AppRoot 注入)
  */
+@OptIn(ExperimentalPermissionsApi::class)
 @Composable
-fun MapScreen(onMenuClick: () -> Unit) {
+fun MapScreen(
+    onMenuClick: () -> Unit,
+    vm: MapViewModel = hiltViewModel()
+) {
+    val state by vm.state.collectAsStateWithLifecycle()
+    val snackbar = remember { SnackbarHostState() }
+
+    val perms = rememberMultiplePermissionsState(
+        listOf(
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        )
+    )
+
+    // 进入 → 申请权限 + 启动轮询
+    LaunchedEffect(Unit) {
+        if (!perms.allPermissionsGranted) perms.launchMultiplePermissionRequest()
+        vm.startPolling()
+    }
+    // 离开 → 停轮询(共享保留:用户切走再回来,共享继续)
+    DisposableEffect(Unit) {
+        onDispose { vm.stopPolling() }
+    }
+    // 错误 → snackbar
+    LaunchedEffect(state.lastError) {
+        state.lastError?.let { snackbar.showSnackbar(it) }
+    }
+
+    var amap by remember { mutableStateOf<AMap?>(null) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -55,7 +102,7 @@ fun MapScreen(onMenuClick: () -> Unit) {
             title = "地图",
             onMenuClick = onMenuClick,
             actions = {
-                IconButton(onClick = { /* TODO 刷新 */ }) {
+                IconButton(onClick = { vm.load() }) {
                     Icon(
                         Icons.Filled.Refresh,
                         contentDescription = "刷新",
@@ -65,93 +112,148 @@ fun MapScreen(onMenuClick: () -> Unit) {
             }
         )
 
-        // 对方卡片
+        // 顶部 TA 信息卡
         PartnerLocationCard(
-            nickname = "TA",
-            distance = "—",
-            updatedAt = "未连接"
+            nickname = state.partnerNickname ?: "TA",
+            avatar = state.partnerAvatar,
+            location = state.partner,
+            myLocation = state.me
         )
 
-        Spacer(Modifier.height(Spacing.lg))
-
-        // 地图占位
+        // 地图(weight 1,占满中间)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = Spacing.screenH)
+                .weight(1f)
+                .padding(horizontal = Spacing.screenH, vertical = Spacing.sm)
                 .clip(MaterialTheme.shapes.large)
-                .background(MaterialTheme.colorScheme.surfaceContainerLow)
-                .height(360.dp),
-            contentAlignment = Alignment.Center
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Box(
-                    modifier = Modifier
-                        .size(80.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primaryContainer),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        Icons.Filled.LocationOn,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(40.dp)
-                    )
-                }
-                Spacer(Modifier.height(Spacing.md))
-                Text(
-                    text = "地图开发中",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontWeight = FontWeight.SemiBold
+            AmapMapView(modifier = Modifier.fillMaxSize()) { map ->
+                amap = map
+            }
+
+            // 初次 / 双方位置变化 → 重新放 marker + 居中
+            LaunchedEffect(state.me?.lat, state.partner?.lat) {
+                val m = amap ?: return@LaunchedEffect
+                m.placeMarkers(
+                    me = state.me?.toMarker(),
+                    partner = state.partner?.toMarker()
                 )
-                Spacer(Modifier.height(Spacing.xs))
-                Text(
-                    text = "下次更新集成高德 SDK",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                m.focusOnBoth(
+                    me = state.me?.toMarker(),
+                    partner = state.partner?.toMarker()
                 )
             }
-        }
 
-        Spacer(Modifier.height(Spacing.xxl))
+            // 没数据时的占位提示
+            if (state.me == null && state.partner == null && !state.loading) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            Icons.Filled.LocationOn,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Spacer(Modifier.height(Spacing.sm))
+                        Text(
+                            "还没有位置信息",
+                            color = MaterialTheme.colorScheme.onSurface,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(Modifier.height(Spacing.xs))
+                        Text(
+                            "开启「共享我的位置」,就能看到彼此的位置",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            }
+        }
 
         // 底部按钮
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = Spacing.screenH),
+                .padding(horizontal = Spacing.screenH, vertical = Spacing.md),
             horizontalArrangement = Arrangement.spacedBy(Spacing.md)
         ) {
             Button(
-                onClick = { /* TODO 共享位置开关 */ },
-                modifier = Modifier.weight(1f),
+                onClick = {
+                    if (state.sharing) vm.stopSharing()
+                    else vm.startSharing()
+                },
+                modifier = Modifier.weight(1f).height(48.dp),
+                shape = MaterialTheme.shapes.medium,
+                colors = if (state.sharing) ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer
+                ) else ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                )
+            ) {
+                Icon(
+                    Icons.Filled.LocationOn,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(Modifier.size(Spacing.xs))
+                Text(if (state.sharing) "停止共享" else "共享我的位置")
+            }
+
+            Button(
+                onClick = { vm.locateMe() },
+                enabled = perms.allPermissionsGranted,
+                modifier = Modifier.weight(1f).height(48.dp),
                 shape = MaterialTheme.shapes.medium,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                     contentColor = MaterialTheme.colorScheme.onSurface
                 )
-            ) { Text("共享我的位置") }
-            Button(
-                onClick = { /* TODO 查看 TA 路线 */ },
-                modifier = Modifier.weight(1f),
-                shape = MaterialTheme.shapes.medium,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
+            ) {
+                Icon(
+                    Icons.Filled.MyLocation,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
                 )
-            ) { Text("查看 TA 的位置") }
+                Spacer(Modifier.size(Spacing.xs))
+                Text("定位我")
+            }
         }
     }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        SnackbarHost(snackbar)
+    }
 }
+
+private fun LocationDto.toMarker(): MarkerTarget =
+    MarkerTarget(lat = lat, lng = lng)
 
 @Composable
 private fun PartnerLocationCard(
     nickname: String,
-    distance: String,
-    updatedAt: String
+    avatar: String?,
+    location: LocationDto?,
+    myLocation: LocationDto?
 ) {
+    val distanceText = if (location != null && myLocation != null) {
+        "距离 ${formatDistance(haversineMeters(myLocation.lat, myLocation.lng, location.lat, location.lng))}"
+    } else if (location != null) {
+        "TA 的位置"
+    } else {
+        "TA 还没共享"
+    }
+    val updatedText = when {
+        location == null -> "未连接"
+        else -> formatUpdatedAgo(location.updatedAt)
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -159,10 +261,10 @@ private fun PartnerLocationCard(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Avatar(
-            url = null,
+            url = avatar,
             name = nickname,
             size = 48.dp,
-            online = false,
+            online = location != null,
             ring = true
         )
         Spacer(Modifier.size(Spacing.md))
@@ -174,11 +276,51 @@ private fun PartnerLocationCard(
                 fontWeight = FontWeight.SemiBold
             )
             Text(
-                text = "距离 $distance · $updatedAt",
+                text = "$distanceText · $updatedText",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+    }
+}
+
+private fun haversineMeters(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Double {
+    val r = 6_371_000.0
+    val dLat = Math.toRadians(lat2 - lat1)
+    val dLng = Math.toRadians(lng2 - lng1)
+    val a = kotlin.math.sin(dLat / 2).let { it * it } +
+            kotlin.math.cos(Math.toRadians(lat1)) *
+            kotlin.math.cos(Math.toRadians(lat2)) *
+            kotlin.math.sin(dLng / 2).let { it * it }
+    val c = 2 * kotlin.math.atan2(kotlin.math.sqrt(a), kotlin.math.sqrt(1 - a))
+    return r * c
+}
+
+private fun formatDistance(meters: Double): String {
+    return when {
+        meters < 1000 -> "${meters.toInt()} m"
+        meters < 100_000 -> String.format("%.1f km", meters / 1000.0)
+        else -> String.format("%.0f km", meters / 1000.0)
+    }
+}
+
+private fun formatUpdatedAgo(updatedAt: String?): String {
+    if (updatedAt.isNullOrBlank()) return "未知"
+    return try {
+        // 兼容 "2026-10-17 14:04:55" / ISO 两种
+        val s = updatedAt.replace('T', ' ').substringBefore('.')
+        val sdf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US)
+        sdf.timeZone = java.util.TimeZone.getTimeZone("UTC")
+        val t = sdf.parse(s) ?: return updatedAt
+        val diffSec = (System.currentTimeMillis() - t.time) / 1000
+        when {
+            diffSec < 60 -> "刚刚"
+            diffSec < 3600 -> "${diffSec / 60} 分钟前"
+            diffSec < 86_400 -> "${diffSec / 3600} 小时前"
+            else -> "${diffSec / 86_400} 天前"
+        }
+    } catch (_: Exception) {
+        updatedAt
     }
 }
 

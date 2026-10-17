@@ -14,12 +14,14 @@ android {
         applicationId = "cn.ganluo.jiyi"
         minSdk = 26
         targetSdk = 35
-        versionCode = 11
-        versionName = "1.0.10"
+        versionCode = 12
+        versionName = "1.0.11"
 
-        // NDK ABI 过滤,减小 APK 体积(高德 SDK 包含 .so)
+        // NDK ABI 过滤,减小 APK 体积
+        // 1.0.11:砍掉 armeabi-v7a(<1% 设备,省 23MB);只留 arm64-v8a
+        // 之后可以加 splits 进一步按 ABI 拆
         ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+            abiFilters += listOf("arm64-v8a")
         }
     }
 
@@ -53,6 +55,7 @@ android {
             val debugKey = (project.findProperty("AMAP_KEY_DEBUG") as String?)
                 ?: "REPLACE_ME_DEBUG_KEY"
             buildConfigField("String", "AMAP_KEY", "\"$debugKey\"")
+            manifestPlaceholders["AMAP_KEY"] = debugKey
         }
         release {
             isMinifyEnabled = true
@@ -68,6 +71,7 @@ android {
             val releaseKey = (project.findProperty("AMAP_KEY_RELEASE") as String?)
                 ?: "REPLACE_ME_RELEASE_KEY"
             buildConfigField("String", "AMAP_KEY", "\"$releaseKey\"")
+            manifestPlaceholders["AMAP_KEY"] = releaseKey
         }
     }
 
@@ -144,6 +148,12 @@ dependencies {
 
     // --- Splash ---
     implementation("androidx.core:core-splashscreen:1.0.1")
+
+    // --- 高德 SDK ---
+    // 3DMap + Search + Location 三合一 fat jar(11.3.100)
+    // + 2 个 .so 在 src/main/jniLibs/{arm64-v8a,armeabi-v7a}
+    // 不用 maven:官方仓库连不上
+    implementation(files("libs/amap-3dmap-11.3.100.jar"))
 
     // --- Tooling ---
     debugImplementation("androidx.compose.ui:ui-tooling")

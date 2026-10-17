@@ -24,3 +24,13 @@
 
 # Compose
 -keep class androidx.compose.** { *; }
+
+# ===== 高德 SDK(11.3.100) =====
+# AMap 11.x 用了 jafama 和自己的 GNSS 内部类,R8 默认会 warn
+-dontwarn com.amap.ams.gnss.GnssSoftLocator
+-dontwarn net.jafama.FastMath
+# 反射创建的地图控件、定位回调等保留
+-keep class com.amap.api.** { *; }
+-keep class com.autonavi.** { *; }
+-dontwarn com.amap.**
+-dontwarn com.autonavi.**
