@@ -57,13 +57,17 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ganluo.jiyi.BuildConfig
 import com.ganluo.jiyi.data.remote.dto.BindRequestDto
+import com.ganluo.jiyi.permissions.LocationPermissionHelper
 import com.ganluo.jiyi.ui.component.Avatar
 import com.ganluo.jiyi.ui.component.CompactTopBar
 import com.ganluo.jiyi.ui.component.JiyiCard
 import com.ganluo.jiyi.ui.component.SectionTitle
 import com.ganluo.jiyi.ui.theme.Spacing
 import com.ganluo.jiyi.update.UpdateCheckResult
+import com.google.accompanist.permissions.ExperimentalPermissionsApi
+import com.google.accompanist.permissions.rememberMultiplePermissionsState
 
+@OptIn(ExperimentalPermissionsApi::class)
 @Composable
 fun ProfileScreen(
     onMenuClick: () -> Unit,
@@ -102,6 +106,36 @@ fun ProfileScreen(
     var showEditProfile by remember { mutableStateOf(false) }
     var showUnbindDialog by remember { mutableStateOf(false) }
     var showLogoutDialog by remember { mutableStateOf(false) }
+    var showBgLocationDialog by remember { mutableStateOf(false) }
+
+    // 定位权限申请(1.0.16):开共享前必须授前台定位
+    val locPerms = rememberMultiplePermissionsState(
+        LocationPermissionHelper.FOREGROUND_PERMISSIONS
+    )
+
+    /**
+     * 切换共享:
+     *  - 关 → 直接停 Service
+     *  - 开:
+     *      1) 检查前台定位 → 没授就 launchMultiplePermissionRequest()
+     *      2) 检查后台定位(API 29+) → 没授就弹对话框引导去系统设置
+     *      3) 全部通过 → vm.toggleSharing()
+     */
+    fun onToggleSharing(checked: Boolean) {
+        if (!checked) {
+            vm.toggleSharing()
+            return
+        }
+        if (!locPerms.allPermissionsGranted) {
+            locPerms.launchMultiplePermissionRequest()
+            return
+        }
+        if (!LocationPermissionHelper.checkBackground(context)) {
+            showBgLocationDialog = true
+            return
+        }
+        vm.toggleSharing()
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -343,7 +377,7 @@ fun ProfileScreen(
                     Spacer(Modifier.width(Spacing.md))
                     Switch(
                         checked = sharing,
-                        onCheckedChange = { vm.toggleSharing() }
+                        onCheckedChange = { onToggleSharing(it) }
                     )
                 }
             }
@@ -459,6 +493,31 @@ fun ProfileScreen(
                 }) { Text("退出", color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = { TextButton(onClick = { showLogoutDialog = false }) { Text("取消") } }
+        )
+    }
+
+    if (showBgLocationDialog) {
+        AlertDialog(
+            onDismissRequest = { showBgLocationDialog = false },
+            title = { Text("需要后台定位权限") },
+            text = {
+                Column {
+                    Text("共享需要「始终允许」位置权限,才能在 App 后台时继续上传。")
+                    Spacer(Modifier.height(Spacing.sm))
+                    Text(
+                        LocationPermissionHelper.describeBackgroundDenied(context),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showBgLocationDialog = false
+                    LocationPermissionHelper.launchAppSettings(context)
+                }) { Text("去设置") }
+            },
+            dismissButton = { TextButton(onClick = { showBgLocationDialog = false }) { Text("取消") } }
         )
     }
 }

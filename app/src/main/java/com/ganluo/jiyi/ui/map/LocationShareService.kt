@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.ganluo.jiyi.MainActivity
 import com.ganluo.jiyi.R
@@ -56,35 +57,47 @@ class LocationShareService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        Log.i(TAG, "Service onCreate")
         ensureChannel()
         startInForeground(buildNotification(Mode.REAL_TIME, "刚刚开始"))
         sharingState.set(true)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        Log.i(TAG, "Service onStartCommand action=${intent?.action}")
         if (intent?.action == ACTION_STOP) {
             stopSelf()
             return START_NOT_STICKY
         }
         if (shareJob?.isActive == true) return START_STICKY
         shareJob = scope.launch {
-            // 1) 启动时立即 requestOnce 一次:1-3s 拿到第一个 fix → 立即上传
-            //    避免「开了共享但地图没自己」的问题(1.0.14 回归 fix)
-            runCatching {
+            Log.i(TAG, "shareJob started")
+            // 1) 启动时立即 requestOnce 一次
+            try {
                 amap.requestOnce().collect { fix ->
+                    Log.i(TAG, "requestOnce fix: $fix")
                     handleFix(fix)
                     return@collect
                 }
+            } catch (e: Exception) {
+                Log.e(TAG, "requestOnce failed", e)
             }
-            // 2) 然后切到 30s 持续定位 + 智能节流
-            amap.startContinuous(intervalMs = 30_000L).collectLatest { fix ->
-                handleFix(fix)
+            Log.i(TAG, "switching to startContinuous 30s")
+            // 2) 然后切到 30s 持续定位
+            try {
+                amap.startContinuous(intervalMs = 30_000L).collectLatest { fix ->
+                    Log.d(TAG, "continuous fix: $fix")
+                    handleFix(fix)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "startContinuous failed", e)
             }
         }
         return START_STICKY
     }
 
     override fun onDestroy() {
+        Log.i(TAG, "Service onDestroy")
         shareJob?.cancel()
         shareJob = null
         scope.cancel()
@@ -111,11 +124,13 @@ class LocationShareService : Service() {
         if (moved || timedOut) {
             runCatching { locRepo.upload(fix.lat, fix.lng, fix.accuracy) }
                 .onSuccess {
+                    Log.i(TAG, "uploaded ok: $fix")
                     lastUploadedLat = fix.lat
                     lastUploadedLng = fix.lng
                     lastUploadedAt = now
                     updateNotification(Mode.REAL_TIME, "刚刚上传")
                 }
+                .onFailure { e -> Log.e(TAG, "upload failed: $fix", e) }
         } else {
             // 跳过上传,但更新通知让用户知道 App 还在跑
             val sinceMin = (now - lastUploadedAt) / 60_000
@@ -211,12 +226,14 @@ class LocationShareService : Service() {
         const val CHANNEL_ID = "loc_share"
         const val NOTIF_ID = 1001
         const val ACTION_STOP = "com.ganluo.jiyi.action.STOP_LOC_SHARE"
+        private const val TAG = "LocShareService"
 
         // 智能省电阈值
-        private const val MIN_DISTANCE_M = 100.0   // 移动 >100m 才上传
-        private const val MAX_INTERVAL_MS = 5L * 60_000  // 静止 5min 心跳一次
+        private const val MIN_DISTANCE_M = 100.0
+        private const val MAX_INTERVAL_MS = 5L * 60_000
 
         fun start(ctx: Context) {
+            Log.i(TAG, "start requested from ${ctx.javaClass.simpleName}")
             val intent = Intent(ctx, LocationShareService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 ctx.startForegroundService(intent)
@@ -226,6 +243,7 @@ class LocationShareService : Service() {
         }
 
         fun stop(ctx: Context) {
+            Log.i(TAG, "stop requested from ${ctx.javaClass.simpleName}")
             ctx.stopService(Intent(ctx, LocationShareService::class.java))
         }
     }
