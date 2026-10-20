@@ -10,7 +10,6 @@ import com.ganluo.jiyi.data.remote.dto.BindRequestDto
 import com.ganluo.jiyi.data.remote.dto.UserDto
 import com.ganluo.jiyi.data.repository.AuthRepository
 import com.ganluo.jiyi.data.repository.BindRepository
-import com.ganluo.jiyi.ui.map.LocationShareService
 import com.ganluo.jiyi.ui.map.LocationSharingState
 import com.ganluo.jiyi.update.AppUpdateChecker
 import com.ganluo.jiyi.update.UpdateCheckResult
@@ -31,7 +30,7 @@ class ProfileViewModel @Inject constructor(
     private val bind: BindRepository,
     private val appUpdateChecker: AppUpdateChecker,
     private val api: ApiService,
-    private val sharingState: LocationSharingState,
+    val sharingState: LocationSharingState,
     @ApplicationContext private val appContext: Context
 ) : ViewModel() {
 
@@ -47,27 +46,17 @@ class ProfileViewModel @Inject constructor(
     private val _msg = MutableStateFlow<String?>(null)
     val msg = _msg.asStateFlow()
 
-    // 手动检查更新的状态(null=未触发,Idle 也算 null)
     private val _updateState = MutableStateFlow<UpdateCheckResult?>(null)
     val updateState = _updateState.asStateFlow()
 
     private val _updateChecking = MutableStateFlow(false)
     val updateChecking = _updateChecking.asStateFlow()
 
-    // 头像上传状态(null=空闲)
     private val _avatarUploading = MutableStateFlow(false)
     val avatarUploading = _avatarUploading.asStateFlow()
 
-    // 后台位置共享开关(1.0.14 移到 Profile)
+    /** 共享状态(由 LocationShareService 改) */
     val sharing = sharingState.sharing
-
-    fun toggleSharing() {
-        if (sharingState.sharing.value) {
-            LocationShareService.stop(appContext)
-        } else {
-            LocationShareService.start(appContext)
-        }
-    }
 
     fun load() = viewModelScope.launch {
         try {
@@ -90,11 +79,6 @@ class ProfileViewModel @Inject constructor(
         }
     }
 
-    /**
-     * 头像上传:把相册/相机选的图先 POST /api/upload/image 拿 url,
-     * 再 PATCH /api/auth/profile 写到 user.avatar。
-     * Uri → cacheFile → MultipartBody.Part,沿用后端 field 名 "file"。
-     */
     fun uploadAvatar(uri: Uri) = viewModelScope.launch {
         if (_avatarUploading.value) return@launch
         _avatarUploading.value = true
@@ -105,8 +89,6 @@ class ProfileViewModel @Inject constructor(
                 )
                 ?: "image/jpeg"
             val ext = MimeTypeMap.getSingleton().getExtensionFromMimeType(mime) ?: "jpg"
-
-            // ContentResolver 读到 cacheFile(必须,因为 Uri 不能直接当 RequestBody)
             val cacheFile = File(appContext.cacheDir, "avatar_${System.currentTimeMillis()}.$ext")
             appContext.contentResolver.openInputStream(uri).use { input ->
                 requireNotNull(input) { "无法读取图片" }
@@ -117,12 +99,9 @@ class ProfileViewModel @Inject constructor(
                 _msg.value = "图片不能超过 5MB"
                 return@launch
             }
-
             val body = cacheFile.asRequestBody(mime.toMediaTypeOrNull())
             val part = MultipartBody.Part.createFormData("file", cacheFile.name, body)
             val resp = api.uploadImage(part)
-
-            // 后端返回相对路径,直接 set,显示时由 Helper::toAbsoluteUrl 拼完整域名
             val updated = auth.updateProfile(_me.value?.nickname, _me.value?.signature, resp.url)
             _me.value = updated
             _msg.value = "头像已更新"
@@ -172,7 +151,6 @@ class ProfileViewModel @Inject constructor(
         after()
     }
 
-    /** 手动检查更新(给 Profile 里的「检查更新」按钮用) */
     fun checkUpdate() = viewModelScope.launch {
         _updateChecking.value = true
         _updateState.value = null

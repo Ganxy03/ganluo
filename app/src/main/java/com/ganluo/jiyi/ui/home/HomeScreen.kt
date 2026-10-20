@@ -54,7 +54,6 @@ import com.ganluo.jiyi.ui.util.DateUtil
  */
 @Composable
 fun HomeScreen(
-    onMenuClick: () -> Unit,
     onGoProfile: () -> Unit,
     onOpenBluetooth: () -> Unit,
     onLoggedOut: () -> Unit,
@@ -104,7 +103,7 @@ fun HomeScreen(
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbar) },
-        topBar = { CompactTopBar(title = "日常", onMenuClick = onMenuClick) }
+        topBar = { CompactTopBar(title = "日常") }
     ) { padding ->
         Column(
             modifier = Modifier
@@ -274,3 +273,5 @@ private sealed class DeleteTarget {
     data class Mood(val id: Long) : DeleteTarget()
     data class Message(val id: Long) : DeleteTarget()
 }
+
+

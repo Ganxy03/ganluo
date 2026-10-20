@@ -59,7 +59,6 @@ import com.google.accompanist.permissions.rememberMultiplePermissionsState
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
 fun MapScreen(
-    onMenuClick: () -> Unit,
     vm: MapViewModel = hiltViewModel()
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
@@ -95,7 +94,6 @@ fun MapScreen(
     ) {
         CompactTopBar(
             title = "地图",
-            onMenuClick = onMenuClick,
             actions = {
                 IconButton(onClick = { vm.load() }) {
                     Icon(
@@ -280,5 +278,6 @@ private fun formatUpdatedAgo(updatedAt: String?): String {
 @Preview(showBackground = true, name = "地图页")
 @Composable
 private fun PreviewMap() {
-    JiyiTheme { MapScreen(onMenuClick = {}) }
+    JiyiTheme { MapScreen() }
 }
+

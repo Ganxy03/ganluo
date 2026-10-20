@@ -1,5 +1,6 @@
 package com.ganluo.jiyi.ui.map
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -7,11 +8,13 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import com.ganluo.jiyi.MainActivity
 import com.ganluo.jiyi.R
 import com.ganluo.jiyi.data.repository.LocationRepository
@@ -30,13 +33,12 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
- * 后台位置共享前台服务(1.0.13 加智能省电):
- *  - startForeground(API 34+ 声明 type=location)
- *  - 通知带「停止」按钮
- *  - amap 持续 30s 定位
- *  - 智能过滤:距离上次上传 >100m **OR** 时间 >5min → 上传
- *    否则跳过(避免 GPS 漂移 + 静止时刷后端)
- *  - 通知栏动态显示「实时模式」/「省电模式」+ 距上次上传时长
+ * 后台位置共享 前台服务(默认开启):
+ *  - 启动: `LocationShareService.start(ctx)` — 登录成功 / App 启动后自动调
+ *  - 智能省电:距离上次上传 >100m **OR** 时间 >5min 才上传
+ *  - 没定位权限时,以「轻松模式」空跑,不闪退不崩溃,通知栏文字友好提示
+ *  - 通知栏低调显示「运行中」,只点开才能看详情
+ *  - 通知带「停止」按钮(用户主动终止入口)
  */
 @AndroidEntryPoint
 class LocationShareService : Service() {
@@ -48,10 +50,12 @@ class LocationShareService : Service() {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var shareJob: Job? = null
 
-    // 上次成功上传的状态
     private var lastUploadedLat: Double = 0.0
     private var lastUploadedLng: Double = 0.0
     private var lastUploadedAt: Long = 0L
+
+    /** 当前 Service 是否真的有定位权限 */
+    private var hasLocationPerm: Boolean = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -59,20 +63,27 @@ class LocationShareService : Service() {
         super.onCreate()
         Log.i(TAG, "Service onCreate")
         ensureChannel()
-        startInForeground(buildNotification(Mode.REAL_TIME, "刚刚开始"))
+        startInForeground(buildNotification(NotificationMode.STARTING, "正在启动…"))
         sharingState.set(true)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.i(TAG, "Service onStartCommand action=${intent?.action}")
+        // 通知栏「停止」按钮点了之后
         if (intent?.action == ACTION_STOP) {
             stopSelf()
             return START_NOT_STICKY
         }
         if (shareJob?.isActive == true) return START_STICKY
+
+        hasLocationPerm = checkLocationPerm(this)
         shareJob = scope.launch {
-            Log.i(TAG, "shareJob started")
-            // 1) 启动时立即 requestOnce 一次
+            if (!hasLocationPerm) {
+                Log.w(TAG, "no location perm, idle loop")
+                updateNotification(NotificationMode.NO_PERM, "未授予定位权限,无法上传")
+                return@launch
+            }
+            // 1) 启动先拿一次
             try {
                 amap.requestOnce().collect { fix ->
                     Log.i(TAG, "requestOnce fix: $fix")
@@ -81,9 +92,9 @@ class LocationShareService : Service() {
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "requestOnce failed", e)
+                updateNotification(NotificationMode.REAL_TIME, "正在重试定位…")
             }
-            Log.i(TAG, "switching to startContinuous 30s")
-            // 2) 然后切到 30s 持续定位
+            // 2) 然后 30s 持续定位
             try {
                 amap.startContinuous(intervalMs = 30_000L).collectLatest { fix ->
                     Log.d(TAG, "continuous fix: $fix")
@@ -105,22 +116,15 @@ class LocationShareService : Service() {
         super.onDestroy()
     }
 
-    /**
-     * 智能节流核心:
-     *  - 距离上次上传 >100m → 移动了,上传
-     *  - 时间 >5min → 即使没动,也心跳一次
-     *  - 否则:跳过,只更新通知栏文本
-     */
     private suspend fun handleFix(fix: AmapLocationFix) {
         val now = System.currentTimeMillis()
         val moved = if (lastUploadedAt == 0L) {
-            true  // 首次 fix 必须上传
+            true
         } else {
             val meters = haversineMeters(fix.lat, fix.lng, lastUploadedLat, lastUploadedLng)
             meters > MIN_DISTANCE_M
         }
         val timedOut = (now - lastUploadedAt) > MAX_INTERVAL_MS
-
         if (moved || timedOut) {
             runCatching { locRepo.upload(fix.lat, fix.lng, fix.accuracy) }
                 .onSuccess {
@@ -128,17 +132,19 @@ class LocationShareService : Service() {
                     lastUploadedLat = fix.lat
                     lastUploadedLng = fix.lng
                     lastUploadedAt = now
-                    updateNotification(Mode.REAL_TIME, "刚刚上传")
+                    updateNotification(NotificationMode.REAL_TIME, "刚刚上传")
                 }
-                .onFailure { e -> Log.e(TAG, "upload failed: $fix", e) }
+                .onFailure { e ->
+                    Log.e(TAG, "upload failed: $fix", e)
+                    updateNotification(NotificationMode.REAL_TIME, "上传失败,稍后重试")
+                }
         } else {
-            // 跳过上传,但更新通知让用户知道 App 还在跑
             val sinceMin = (now - lastUploadedAt) / 60_000
-            updateNotification(Mode.SAVING, "静止中 · 上次上传 ${sinceMin} 分钟前")
+            updateNotification(NotificationMode.SAVING, "静止中 · 上次 ${sinceMin} 分钟前")
         }
     }
 
-    private enum class Mode { REAL_TIME, SAVING }
+    private enum class NotificationMode { STARTING, REAL_TIME, SAVING, NO_PERM }
 
     private fun startInForeground(initial: Notification) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
@@ -152,12 +158,12 @@ class LocationShareService : Service() {
         }
     }
 
-    private fun updateNotification(mode: Mode, subText: String) {
+    private fun updateNotification(mode: NotificationMode, subText: String) {
         val nm = getSystemService(NotificationManager::class.java) ?: return
         nm.notify(NOTIF_ID, buildNotification(mode, subText))
     }
 
-    private fun buildNotification(mode: Mode, subText: String): Notification {
+    private fun buildNotification(mode: NotificationMode, subText: String): Notification {
         val openIntent = PendingIntent.getActivity(
             this, 0,
             Intent(this, MainActivity::class.java).apply {
@@ -172,17 +178,16 @@ class LocationShareService : Service() {
             },
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
-        // 1.0.14:通知改低调 — 标题只显示应用名,内容只显示模式
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_marker_me)
-            .setContentTitle("吉壹")
-            .setContentText(
-                when (mode) {
-                    Mode.REAL_TIME -> "运行中"
-                    Mode.SAVING    -> "运行中(省电)"
-                }
-            )
-            .setSubText(subText)  // 二级文本:上次上传时间,默认折叠不可见
+            .setContentTitle("吉壹 · 位置共享")
+            .setContentText(when (mode) {
+                NotificationMode.STARTING  -> "启动中…"
+                NotificationMode.REAL_TIME -> "运行中"
+                NotificationMode.SAVING    -> "运行中(省电)"
+                NotificationMode.NO_PERM   -> "需要定位权限"
+            })
+            .setSubText(subText)
             .setContentIntent(openIntent)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -210,6 +215,16 @@ class LocationShareService : Service() {
         mgr.createNotificationChannel(ch)
     }
 
+    private fun checkLocationPerm(ctx: Context): Boolean {
+        val fine = ContextCompat.checkSelfPermission(
+            ctx, Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        val coarse = ContextCompat.checkSelfPermission(
+            ctx, Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        return fine || coarse
+    }
+
     private fun haversineMeters(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Double {
         val r = 6_371_000.0
         val dLat = Math.toRadians(lat2 - lat1)
@@ -228,11 +243,23 @@ class LocationShareService : Service() {
         const val ACTION_STOP = "com.ganluo.jiyi.action.STOP_LOC_SHARE"
         private const val TAG = "LocShareService"
 
-        // 智能省电阈值
         private const val MIN_DISTANCE_M = 100.0
         private const val MAX_INTERVAL_MS = 5L * 60_000
 
+        /**
+         * 智能 start:
+         *  - 如果 sharingState 已为 true(Service 已在跑)→ 跳过
+         *  - 否则启动前台服务
+         */
         fun start(ctx: Context) {
+            // sharingState 是单例,跨进程同步。这里快速读一下当前已知状态;
+            // 但注意:Service 是另一个进程,getInstance 注入是 Application 进程的 DI 图。
+            // 改成:通过全局静态计数(进程内),简单可靠 —— 不持久化,App 重启会重置
+            if (sRefCount.get() > 0) {
+                Log.i(TAG, "already running in this proc, skip start")
+                return
+            }
+            sRefCount.incrementAndGet()
             Log.i(TAG, "start requested from ${ctx.javaClass.simpleName}")
             val intent = Intent(ctx, LocationShareService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -244,7 +271,14 @@ class LocationShareService : Service() {
 
         fun stop(ctx: Context) {
             Log.i(TAG, "stop requested from ${ctx.javaClass.simpleName}")
+            sRefCount.set(0)
             ctx.stopService(Intent(ctx, LocationShareService::class.java))
         }
+
+        /** 当前 Application 进程内 Service 是不是在跑(只判断本进程,另一进程不感知) */
+        fun isRunningProcess(): Boolean = sRefCount.get() > 0
+
+        // 仅本进程内存计数(简洁可用)
+        private val sRefCount = java.util.concurrent.atomic.AtomicInteger(0)
     }
 }
