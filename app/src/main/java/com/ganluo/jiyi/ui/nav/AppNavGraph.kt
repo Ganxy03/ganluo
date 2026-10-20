@@ -8,6 +8,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ganluo.jiyi.ui.home.HomeViewModel
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -18,7 +20,10 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.ganluo.jiyi.ui.home.ChatScreen
 import com.ganluo.jiyi.ui.home.HomeScreen
+import com.ganluo.jiyi.ui.home.PartnerDetailScreen
+import com.ganluo.jiyi.ui.util.DateUtil
 import com.ganluo.jiyi.ui.login.LoginScreen
 import com.ganluo.jiyi.ui.login.LoginViewModel
 import com.ganluo.jiyi.ui.profile.ProfileScreen
@@ -96,12 +101,31 @@ fun AppRoot(
                 composable(Route.HOME) {
                     HomeScreen(
                         onGoProfile = { nav.navigateTab(Route.PROFILE) },
-                        onOpenBluetooth = { nav.navigateTab(Route.PROFILE) },
+                        onOpenChat = { nav.navigate(Route.CHAT) },
                         onLoggedOut = {
                             nav.navigate(Route.LOGIN) {
                                 popUpTo(0) { inclusive = true }
                             }
                         }
+                    )
+                }
+                composable(Route.CHAT) {
+                    val chatVm: HomeViewModel = hiltViewModel()
+                    val d by chatVm.date.collectAsStateWithLifecycle()
+                    ChatScreen(
+                        date = d,
+                        onBack = { nav.popBackStack() },
+                        onOpenPartnerDetail = { nav.navigate(Route.PARTNER_DETAIL) },
+                        vm = chatVm
+                    )
+                }
+                composable(Route.PARTNER_DETAIL) {
+                    val detailVm: HomeViewModel = hiltViewModel()
+                    val partner by detailVm.home.collectAsStateWithLifecycle()
+                    PartnerDetailScreen(
+                        partner = partner?.partner?.user,
+                        bindAt = partner?.me?.user?.bindAt,
+                        onBack = { nav.popBackStack() }
                     )
                 }
                 composable(Route.PROFILE) {

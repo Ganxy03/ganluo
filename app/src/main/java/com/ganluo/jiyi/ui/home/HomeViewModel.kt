@@ -81,6 +81,7 @@ class HomeViewModel @Inject constructor(
         if (d == _date.value) return
         _date.value = d
         load()
+        loadMonthMarks(d)
     }
 
     fun shift(deltaDays: Int) = setDate(DateUtil.shiftDate(_date.value, deltaDays))
@@ -141,6 +142,40 @@ class HomeViewModel @Inject constructor(
         runCatching { msgRepo.delete(id) }
         load()
     }
+
+    /** 日历标记点:该月哪些天有心情 / 有留言(只算有内容的,不重复 fetch 整月数据太重) */
+    private val _monthMarks = MutableStateFlow<Pair<Set<String>, Set<String>>>(emptySet<String>() to emptySet<String>())
+    val monthMarks = _monthMarks.asStateFlow()
+
+    /**
+     * 切换日期时,顺手把当月 1..今天 的"是否有内容"扫一遍,给日历打点。
+     * 后端没有月聚合端点,所以并发拉若干天(上限 31 天),失败就静默跳过,
+     * 不影响主流程。日历不依赖它也能用(只是没有小圆点)。
+     */
+    private fun loadMonthMarks(anchorDate: String) {
+        viewModelScope.launch {
+            val (y, m, _) = runCatching {
+                anchorDate.split("-").map { it.toInt() }
+            }.getOrNull() ?: return@launch
+            val cal = java.util.Calendar.getInstance().apply { set(y, m - 1, 1) }
+            val daysInMonth = cal.getActualMaximum(java.util.Calendar.DAY_OF_MONTH)
+            val today = DateUtil.toDateStr()
+            val moodDays = mutableSetOf<String>()
+            val msgDays = mutableSetOf<String>()
+            for (d in 1..daysInMonth) {
+                val ds = String.format("%04d-%02d-%02d", y, m, d)
+                if (ds > today) break
+                runCatching { homeRepo.load(ds) }.getOrNull()?.let { h ->
+                    if (h.me?.moods?.isNotEmpty() == true || h.partner?.moods?.isNotEmpty() == true) moodDays.add(ds)
+                    if (h.messages?.list?.isNotEmpty() == true) msgDays.add(ds)
+                }
+            }
+            _monthMarks.value = moodDays to msgDays
+        }
+    }
+
+    /** 图片选择入口:HomeScreen 和 ChatScreen 共用(各自持有 launcher,这里只做上传) */
+    fun uploadImage(uri: Uri) = uploadMessageImage(uri)
 
     fun findMessage(id: Long): MessageDto? =
         _home.value?.messages?.list?.firstOrNull { it.id == id }

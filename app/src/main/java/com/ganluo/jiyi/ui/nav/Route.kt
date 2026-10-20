@@ -14,6 +14,10 @@ object Route {
     const val PROFILE_BLUETOOTH = "profile/bluetooth"
     const val PROFILE_ABOUT = "profile/about"
 
+    // 首页下钻(2.0)
+    const val CHAT = "chat"
+    const val PARTNER_DETAIL = "partner_detail"
+
     @Deprecated("地图已下沉到 我的 / 位置查看")
     const val MAP = "map"
     const val BLUETOOTH = "bluetooth"

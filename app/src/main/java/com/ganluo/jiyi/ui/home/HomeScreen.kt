@@ -4,17 +4,14 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -27,78 +24,59 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.ganluo.jiyi.data.remote.dto.MessageDto
+import com.ganluo.jiyi.data.remote.dto.MoodDto
 import com.ganluo.jiyi.ui.component.CompactTopBar
 import com.ganluo.jiyi.ui.theme.Spacing
-import com.ganluo.jiyi.ui.util.DateUtil
 
 /**
- * 首页(方案3:微信式聊天优先)
+ * 首页 2.0 —— 纵向三段式:
  *
- * 布局:
- *   Scaffold(topBar = "日常")
- *   ├─ MoodStrip(顶,整条可点 → MoodSheet)
- *   ├─ MessageSection(占满剩余,reverseLayout 消息列表)
- *   └─ MessageComposer(底,常驻,微信式:文字/表情/图片/引用)
+ *   ┌──────────────────────────┐
+ *   │  日常                     │  顶栏 44dp
+ *   ├──────────────────────────┤
+ *   │  ▸ ‹ 今天 ›        ⌄      │  ① 日历卡(折叠=一行 / 展开=整月)
+ *   ├──────────────────────────┤
+ *   │  😊 记录心情      [记录] ⌄ │  ② 心情卡(折叠=摘要 / 展开=当天历史)
+ *   ├──────────────────────────┤
+ *   │  💬 留言  3 条          › │  ③ 消息卡(最近 3 条 → 点进聊天窗)
+ *   └──────────────────────────┘
  *
- * 没有 DateBar(日期切换搬进了 MoodSheet 顶栏)
- * 没有"写留言"按钮(发送走 MessageComposer 的 ➤ 按钮)
- * 没有 AlertDialog 写留言(改成常驻底部栏)
+ * 三段各自独立折叠,默认全折叠,首页保持清爽。
+ * 消息全文在 [ChatScreen],TA 资料在 [PartnerDetailScreen]。
  */
 @Composable
 fun HomeScreen(
     onGoProfile: () -> Unit,
-    onOpenBluetooth: () -> Unit,
     onLoggedOut: () -> Unit,
+    onOpenChat: () -> Unit,
     vm: HomeViewModel = hiltViewModel()
 ) {
     val date by vm.date.collectAsStateWithLifecycle()
     val home by vm.home.collectAsStateWithLifecycle()
     val loading by vm.loading.collectAsStateWithLifecycle()
     val error by vm.error.collectAsStateWithLifecycle()
-    val composerUpload by vm.composerUpload.collectAsStateWithLifecycle()
-    val composerText by vm.composerText.collectAsStateWithLifecycle()
-    val replyTo by vm.replyTo.collectAsStateWithLifecycle()
+    val monthMarks by vm.monthMarks.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
 
     LaunchedEffect(Unit) { vm.load() }
     LaunchedEffect(error) { error?.let { snackbar.showSnackbar(it) } }
 
-    val isToday = DateUtil.isToday(date)
     val me = home?.me?.user
     val partner = home?.partner?.user
     val myMoods = home?.me?.moods.orEmpty()
     val partnerMoods = home?.partner?.moods.orEmpty()
-    val messages = home?.messages
+    val messages = home?.messages?.list.orEmpty()
 
-    var showMoodSheet by remember { mutableStateOf(false) }
     var showMoodPicker by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<DeleteTarget?>(null) }
 
-    // 留言配图 photo picker
+    // 图片选择(首页也要能发,虽然主要在聊天窗)
     val pickImage = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri: Uri? ->
-        uri?.let { vm.uploadMessageImage(it) }
-    }
-    fun launchImagePicker() {
-        pickImage.launch(
-            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-        )
-    }
-
-    LaunchedEffect(composerUpload) {
-        (composerUpload as? ComposerUpload.Failed)?.let {
-            snackbar.showSnackbar(it.message)
-        }
-    }
+    ) { uri: Uri? -> uri?.let { vm.uploadImage(it) } }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -109,91 +87,53 @@ fun HomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = Spacing.screenH, vertical = Spacing.sm)
         ) {
-            // ===== 心情 strip =====
-            MoodStrip(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = Spacing.screenH, vertical = Spacing.sm),
+            // ===== ① 日历 =====
+            DatePickerCard(
+                date = date,
+                markedDates = (monthMarks.first + monthMarks.second),
+                moodDates = monthMarks.first,
+                messageDates = monthMarks.second,
+                onDateChange = vm::setDate
+            )
+
+            Spacer(Modifier.height(Spacing.sm))
+
+            // ===== ② 心情 =====
+            MoodCard(
+                date = date,
                 meNickname = me?.nickname,
                 meAvatar = me?.avatar,
                 partnerNickname = partner?.nickname,
                 partnerAvatar = partner?.avatar,
-                myLatest = myMoods.maxByOrNull { it.id },
-                partnerLatest = partnerMoods.maxByOrNull { it.id },
-                onOpen = { showMoodSheet = true }
+                myMoods = myMoods,
+                partnerMoods = partnerMoods,
+                onAdd = { showMoodPicker = true },
+                onLongPressMine = { pendingDelete = DeleteTarget.Mood(it.id) }
             )
 
-            // ===== 消息列表(占满剩余) =====
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f, fill = true)
-                    .padding(horizontal = Spacing.screenH)
-            ) {
-                when {
-                    loading -> CenteredText("加载中…")
-                    partner == null -> NotBoundCard(onGoProfile = onGoProfile)
-                    else -> MessageSection(
-                        modifier = Modifier.fillMaxSize(),
-                        bound = true,
-                        messages = messages?.list.orEmpty(),
-                        unreadTotal = messages?.unreadTotal ?: 0,
-                        latestUnreadDate = messages?.latestUnreadDate,
-                        currentDate = date,
-                        onJumpUnread = { messages?.latestUnreadDate?.let { vm.setDate(it) } },
-                        // 短按消息 = 直接进引用回复模式(微信)
-                        onTapMessage = { vm.setReplyTo(it) },
-                        onLongPressMessage = { pendingDelete = DeleteTarget.Message(it.id) }
-                    )
-                }
-            }
+            Spacer(Modifier.height(Spacing.sm))
 
-            // ===== 底部输入栏(只有绑定了伴侣才显示) =====
-            if (partner != null) {
-                MessageComposer(
-                    text = composerText,
-                    onTextChange = vm::setComposerText,
-                    replyTo = replyTo,
-                    onClearReply = vm::clearReply,
-                    composerUpload = composerUpload,
-                    onPickImage = ::launchImagePicker,
-                    onClearImage = vm::clearComposerImage,
-                    onEmojiPick = vm::appendEmoji,
-                    onSend = {
-                        val ready = composerUpload as? ComposerUpload.Ready
-                        vm.sendMessage(
-                            content = composerText.trim(),
-                            replyToId = replyTo?.id,
-                            imageUrl = ready?.url,
-                            imageWidth = ready?.width,
-                            imageHeight = ready?.height
-                        )
-                    }
-                )
-            }
+            // ===== ③ 留言 =====
+            MessagePreviewCard(
+                date = date,
+                bound = partner != null,
+                partnerNickname = partner?.nickname,
+                partnerAvatar = partner?.avatar,
+                meNickname = me?.nickname,
+                meAvatar = me?.avatar,
+                messages = messages,
+                onOpenChat = onOpenChat,
+                onGoProfile = onGoProfile
+            )
+
+            Spacer(Modifier.height(Spacing.xxxl))
         }
     }
 
-    // ===== 心情 sheet =====
-    MoodSheet(
-        visible = showMoodSheet,
-        date = date,
-        isToday = isToday,
-        meNickname = me?.nickname,
-        meAvatar = me?.avatar,
-        partnerNickname = partner?.nickname,
-        partnerAvatar = partner?.avatar,
-        myMoods = myMoods,
-        partnerMoods = partnerMoods,
-        onDismiss = { showMoodSheet = false },
-        onPrev = { vm.shift(-1) },
-        onNext = { vm.shift(1) },
-        onAdd = { showMoodSheet = false; showMoodPicker = true },
-        onLongPressMine = { pendingDelete = DeleteTarget.Mood(it.id) }
-    )
-
-    // 心情选择(从 sheet 内部触发,弹回选择 emoji + 文字)
+    // 心情选择弹窗
     MoodPickerSheet(
         visible = showMoodPicker,
         onCancel = { showMoodPicker = false },
@@ -223,55 +163,7 @@ fun HomeScreen(
     }
 }
 
-@Composable
-private fun CenteredText(text: String) {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(
-            text,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.bodyMedium
-        )
-    }
-}
-
-@Composable
-private fun NotBoundCard(onGoProfile: () -> Unit) {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(Spacing.lg),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(
-                "还没有绑定另一半",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-                textAlign = TextAlign.Center
-            )
-            Spacer(Modifier.height(Spacing.sm))
-            Text(
-                "去「我的」页面输入 TA 的邀请码,就能看到彼此的日常啦",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodySmall,
-                textAlign = TextAlign.Center
-            )
-            Spacer(Modifier.height(Spacing.lg))
-            Button(
-                onClick = onGoProfile,
-                modifier = Modifier.fillMaxWidth().height(44.dp),
-                shape = MaterialTheme.shapes.medium,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
-                )
-            ) { Text("去绑定") }
-        }
-    }
-}
-
 private sealed class DeleteTarget {
     data class Mood(val id: Long) : DeleteTarget()
     data class Message(val id: Long) : DeleteTarget()
 }
-
-
