@@ -86,6 +86,11 @@ fun ChatScreen(
     ) { uri: Uri? -> uri?.let { vm.uploadImage(it) } }
 
     val listState = rememberLazyListState()
+
+    // 保险:进程被杀后直接恢复到聊天页时,共享 VM 可能是空的,这里补一次加载
+    LaunchedEffect(Unit) {
+        if (home == null) vm.load()
+    }
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size - 1)
     }
@@ -139,7 +144,7 @@ fun ChatScreen(
             if (partner == null) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
-                        "还没有绑定另一半",
+                        if (loading) "加载中…" else "还没有绑定另一半",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
