@@ -14,8 +14,8 @@ android {
         applicationId = "cn.ganluo.jiyi"
         minSdk = 26
         targetSdk = 35
-        versionCode = 21
-        versionName = "1.0.20"
+        versionCode = 22
+        versionName = "1.0.21"
 
         // NDK ABI 过滤,减小 APK 体积
         // 1.0.11:砍掉 armeabi-v7a(<1% 设备,省 23MB);只留 arm64-v8a

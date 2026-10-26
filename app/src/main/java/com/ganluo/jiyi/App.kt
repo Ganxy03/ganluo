@@ -1,65 +1,41 @@
 package com.ganluo.jiyi
 
 import android.app.Application
-import android.util.Log
-import com.amap.api.location.AMapLocationClient
-import com.amap.api.maps.MapsInitializer
-import com.ganluo.jiyi.data.local.TokenStore
-import com.ganluo.jiyi.ui.map.LocationShareService
 import com.ganluo.jiyi.update.AppUpdateChecker
+import com.ganluo.jiyi.util.CrashLogger
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
  * Application 入口,挂 Hilt 容器。
  *
- * 启动时:
- *  1. 高德 SDK 隐私合规声明(**必须在任何定位/地图调用之前**)
- *  2. 版本检查
- *  3. 有 token → 尝试启动位置共享 Service
- *
- * ⚠️ 高德 SDK 8.x 起强制隐私合规前置:不调用 updatePrivacyShow/updatePrivacyAgree,
- *    定位会静默失败(只回调 errorCode,不返回坐标),地图也可能白屏。
- *    这是「定位一直不工作」的根因。
+ * 注意(1.0.21 起):
+ *  - **不在这里碰高德 SDK**。高德隐私合规初始化会触发 native 库加载,
+ *    某些真机 ABI/页大小不匹配会直接 native 崩溃(表现为打开就闪退)。
+ *    改由 [com.ganluo.jiyi.util.AmapBootstrap] 在首次真正使用定位/地图时懒初始化。
+ *  - **不在这里启动位置共享 Service**。冷启动时 App 还没进前台,
+ *    startForegroundService 在 Android 12+ 可能抛 ForegroundServiceStartNotAllowedException。
+ *    改由 AppRoot 在界面就绪且权限齐备后启动。
  */
 @HiltAndroidApp
 class App : Application() {
 
     @Inject lateinit var appUpdateChecker: AppUpdateChecker
-    @Inject lateinit var tokenStore: TokenStore
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     override fun onCreate() {
         super.onCreate()
 
-        // ===== 1) 高德隐私合规(必须最先执行) =====
-        runCatching {
-            // 定位 SDK
-            AMapLocationClient.updatePrivacyShow(this, true, true)
-            AMapLocationClient.updatePrivacyAgree(this, true)
-            // 地图 SDK
-            MapsInitializer.updatePrivacyShow(this, true, true)
-            MapsInitializer.updatePrivacyAgree(this, true)
-            Log.i("AMapPrivacy", "privacy compliance OK")
-        }.onFailure { Log.e("AMapPrivacy", "privacy init failed", it) }
+        // 崩溃日志(写 filesDir/crash-last.txt + logcat CRASHLOG)
+        runCatching { CrashLogger.install(this) }
 
         appScope.launch {
-            // ===== 2) 版本检查 =====
             runCatching { appUpdateChecker.checkOnLaunch() }
-            // ===== 3) 已有 token → 尝试启动位置共享 =====
-            //    注意:此时可能还没有定位权限,LocationShareService.start() 内部会
-            //    自行判断:没权限就只是登记"待启动",不会抛 SecurityException,
-            //    等权限授予后由 MainActivity 再调一次真正启动。
-            runCatching {
-                val t = tokenStore.tokenFlow.first()
-                if (!t.isNullOrBlank()) LocationShareService.start(this@App)
-            }
         }
     }
 }

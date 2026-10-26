@@ -8,6 +8,7 @@ import com.amap.api.location.AMapLocation
 import com.amap.api.location.AMapLocationClient
 import com.amap.api.location.AMapLocationClientOption
 import com.amap.api.location.AMapLocationListener
+import com.ganluo.jiyi.util.AmapBootstrap
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -51,6 +52,7 @@ class AmapLocationProvider @Inject constructor(
     @SuppressLint("MissingPermission")
     @RequiresPermission(anyOf = [Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION])
     fun requestOnce(): Flow<AmapLocationFix> = callbackFlow {
+        AmapBootstrap.ensure(ctx)
         val client = AMapLocationClient(ctx.applicationContext)
         val opt = AMapLocationClientOption().apply {
             locationMode = AMapLocationClientOption.AMapLocationMode.Hight_Accuracy
@@ -101,6 +103,7 @@ class AmapLocationProvider @Inject constructor(
         intervalMs: Long = 30_000L,
         onError: (AmapLocationException) -> Unit = {}
     ): Flow<AmapLocationFix> = callbackFlow {
+        AmapBootstrap.ensure(ctx)
         val client = AMapLocationClient(ctx.applicationContext)
         val opt = AMapLocationClientOption().apply {
             locationMode = AMapLocationClientOption.AMapLocationMode.Hight_Accuracy

@@ -7,6 +7,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.ui.Alignment
 import com.amap.api.maps.AMap
 import com.amap.api.maps.CameraUpdateFactory
 import com.amap.api.maps.MapView
@@ -17,6 +22,7 @@ import com.amap.api.maps.model.Marker
 import com.amap.api.maps.model.MarkerOptions
 import com.ganluo.jiyi.BuildConfig
 import com.ganluo.jiyi.R
+import com.ganluo.jiyi.util.AmapBootstrap
 
 /**
  * 高德 3D MapView 的 Compose 包装:
@@ -30,7 +36,20 @@ fun AmapMapView(
     onMapReady: (AMap) -> Unit = {}
 ) {
     val context = LocalContext.current
-    val mapView = remember { createMapView(context) }
+    // 懒初始化高德隐私合规(首次进地图页才触碰 SDK,避免启动期 native 崩溃)
+    remember { runCatching { AmapBootstrap.ensure(context) }; Unit }
+    // MapView 创建可能因 native 库加载失败而抛错,兜底返回 null 由 UI 显示占位
+    val mapView = remember { runCatching { createMapView(context) }.getOrNull() }
+    if (mapView == null) {
+        Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(
+                "地图加载失败,请稍后重试",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+        return
+    }
 
     DisposableEffect(Unit) {
         mapView.onCreate(null)

@@ -9,6 +9,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -175,6 +178,38 @@ fun AppRoot(
         }
     }
 
+    // ===== 上次崩溃日志(便于用户反馈) =====
+    var crashText by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) { crashText = com.ganluo.jiyi.util.CrashLogger.readLast(ctx) }
+    crashText?.let { text ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = {
+                com.ganluo.jiyi.util.CrashLogger.clear(ctx); crashText = null
+            },
+            title = { androidx.compose.material3.Text("上次运行发生异常") },
+            text = {
+                androidx.compose.material3.Text(
+                    text.take(3000),
+                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall
+                )
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    runCatching {
+                        val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                                as android.content.ClipboardManager
+                        cm.setPrimaryClip(android.content.ClipData.newPlainText("crash", text))
+                    }
+                    com.ganluo.jiyi.util.CrashLogger.clear(ctx); crashText = null
+                }) { androidx.compose.material3.Text("复制并关闭") }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    com.ganluo.jiyi.util.CrashLogger.clear(ctx); crashText = null
+                }) { androidx.compose.material3.Text("关闭") }
+            }
+        )
+    }
     UpdateSheet(
         pending = pending,
         onDismiss = { rootVm.dismissUpdate() },
