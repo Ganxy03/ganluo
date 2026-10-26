@@ -1,17 +1,21 @@
 package com.ganluo.jiyi.ui.map
 
 import android.content.Context
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.ui.Alignment
 import com.amap.api.maps.AMap
 import com.amap.api.maps.CameraUpdateFactory
 import com.amap.api.maps.MapView
@@ -25,39 +29,49 @@ import com.ganluo.jiyi.R
 import com.ganluo.jiyi.util.AmapBootstrap
 
 /**
- * 高德 3D MapView 的 Compose 包装:
- *  - 创建 / 销毁 MapView(配合生命周期)
- *  - 提供 [updateMarkers] 给外部刷新两个 marker(我 + TA)
- *  - 提供 [focusOn] 把相机对准某点
+ * 高德 3D MapView 的 Compose 包装(1.0.22 加固版)
+ *
+ * 安全策略(逐层拦截,目标是「地图挂了也不能闪退」):
+ *  1. 先用 [AmapNative] 预检 native 库能不能 dlopen,不行直接走降级 UI
+ *  2. 隐私合规初始化逐条 try/catch
+ *  3. MapView 构造 try/catch
+ *  4. 生命周期回调 try/catch
+ *
+ * 注意:即使是 native 的 SIGSEGV,Java 也挡不住;预检是目前能做到的最强防线。
+ * 真正要彻底消除风险,只能不用 native 地图(改成 WebView / 外部地图 App)。
  */
 @Composable
 fun AmapMapView(
     modifier: Modifier = Modifier,
+    /** 降级 UI:参数是不可用原因(放在 onMapReady 之前,保证调用处尾随 lambda 仍绑定 onMapReady) */
+    fallback: @Composable (String) -> Unit = { DefaultMapFallback(it) },
     onMapReady: (AMap) -> Unit = {}
 ) {
     val context = LocalContext.current
+
+    if (!AmapNative.available) {
+        fallback(AmapNative.reason)
+        return
+    }
+
     // 懒初始化高德隐私合规(首次进地图页才触碰 SDK,避免启动期 native 崩溃)
     remember { runCatching { AmapBootstrap.ensure(context) }; Unit }
     // MapView 创建可能因 native 库加载失败而抛错,兜底返回 null 由 UI 显示占位
     val mapView = remember { runCatching { createMapView(context) }.getOrNull() }
     if (mapView == null) {
-        Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(
-                "地图加载失败,请稍后重试",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodyMedium
-            )
-        }
+        fallback("地图组件初始化失败")
         return
     }
 
     DisposableEffect(Unit) {
-        mapView.onCreate(null)
-        mapView.onResume()
-        onMapReady(mapView.map)
+        runCatching {
+            mapView.onCreate(null)
+            mapView.onResume()
+            onMapReady(mapView.map)
+        }
         onDispose {
-            mapView.onPause()
-            mapView.onDestroy()
+            runCatching { mapView.onPause() }
+            runCatching { mapView.onDestroy() }
         }
     }
 
@@ -65,6 +79,29 @@ fun AmapMapView(
         modifier = modifier,
         factory = { mapView }
     )
+}
+
+@Composable
+private fun DefaultMapFallback(reason: String) {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(24.dp)
+        ) {
+            Text(
+                "地图组件在当前设备不可用",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Text(
+                reason.take(120),
+                color = MaterialTheme.colorScheme.outline,
+                style = MaterialTheme.typography.labelSmall,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 6.dp)
+            )
+        }
+    }
 }
 
 private fun createMapView(context: Context): MapView {

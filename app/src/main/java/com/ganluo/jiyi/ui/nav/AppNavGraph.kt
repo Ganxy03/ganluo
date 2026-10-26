@@ -18,6 +18,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import com.ganluo.jiyi.permissions.LocationPermissionHelper
 import com.ganluo.jiyi.ui.map.LocationShareService
+import com.ganluo.jiyi.util.CrashLogger
+import kotlinx.coroutines.delay
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
@@ -77,12 +79,16 @@ fun AppRoot(
     ) { result ->
         val granted = result[android.Manifest.permission.ACCESS_FINE_LOCATION] == true ||
                       result[android.Manifest.permission.ACCESS_COARSE_LOCATION] == true
-        if (granted) LocationShareService.start(ctx)
+        if (granted) runCatching { LocationShareService.start(ctx) }
     }
     LaunchedEffect(hasToken) {
+        runCatching { CrashLogger.stage(ctx, "ui.ready token=$hasToken") }
         if (hasToken == true) {
             if (LocationShareService.hasLocationPermission(ctx)) {
-                LocationShareService.start(ctx)
+                // 等首帧渲染完再拉服务:冷启动瞬间起 FGS 容易和进程初始化打架
+                delay(1_200)
+                runCatching { CrashLogger.stage(ctx, "fgs.start") }
+                runCatching { LocationShareService.start(ctx) }
             } else {
                 locPermLauncher.launch(LocationPermissionHelper.FOREGROUND_PERMISSIONS.toTypedArray())
             }

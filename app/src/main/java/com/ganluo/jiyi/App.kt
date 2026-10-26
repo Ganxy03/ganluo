@@ -13,28 +13,33 @@ import javax.inject.Inject
 /**
  * Application 入口,挂 Hilt 容器。
  *
- * 注意(1.0.21 起):
- *  - **不在这里碰高德 SDK**。高德隐私合规初始化会触发 native 库加载,
- *    某些真机 ABI/页大小不匹配会直接 native 崩溃(表现为打开就闪退)。
- *    改由 [com.ganluo.jiyi.util.AmapBootstrap] 在首次真正使用定位/地图时懒初始化。
- *  - **不在这里启动位置共享 Service**。冷启动时 App 还没进前台,
- *    startForegroundService 在 Android 12+ 可能抛 ForegroundServiceStartNotAllowedException。
- *    改由 AppRoot 在界面就绪且权限齐备后启动。
+ * 这里只做三件**绝对不会崩**的事(全部 runCatching):
+ *  1. 装崩溃兜底 + 开新一轮会话面包屑
+ *  2. 补报上次没发出去的崩溃 / 异常结束记录
+ *  3. 检查版本更新
+ *
+ * 明确**不在这里**做的事(都是 1.0.20/1.0.21 闪退的历史教训):
+ *  - 不初始化高德 SDK(会加载 native 库,某些机型直接崩)
+ *  - 不启动前台服务(冷启动启动 FGS 在 Android 12+ 可能被系统拒绝)
  */
 @HiltAndroidApp
 class App : Application() {
 
     @Inject lateinit var appUpdateChecker: AppUpdateChecker
 
-    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onCreate() {
         super.onCreate()
 
-        // 崩溃日志(写 filesDir/crash-last.txt + logcat CRASHLOG)
+        // 1) 崩溃兜底(必须在最前面)
         runCatching { CrashLogger.install(this) }
+        runCatching { CrashLogger.beginSession(this) }
 
         appScope.launch {
+            // 2) 补报上次没发出去的诊断信息
+            runCatching { CrashLogger.uploadPending(this@App) }
+            // 3) 版本检查
             runCatching { appUpdateChecker.checkOnLaunch() }
         }
     }

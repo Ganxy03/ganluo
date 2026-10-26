@@ -7,6 +7,9 @@ import com.ganluo.jiyi.data.local.LocationCache
 import com.ganluo.jiyi.data.remote.dto.LocationDto
 import com.ganluo.jiyi.data.repository.HomeRepository
 import com.ganluo.jiyi.data.repository.LocationRepository
+import com.ganluo.jiyi.location.LocationFix
+import com.ganluo.jiyi.location.LocationUnavailableException
+import com.ganluo.jiyi.location.SystemLocationProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Job
@@ -31,7 +34,7 @@ import javax.inject.Inject
 class MapViewModel @Inject constructor(
     private val homeRepo: HomeRepository,
     private val locRepo: LocationRepository,
-    private val amap: AmapLocationProvider,
+    private val locator: SystemLocationProvider,
     private val sharingState: LocationSharingState,
     private val cache: LocationCache,
     @ApplicationContext private val appContext: Context
@@ -113,8 +116,8 @@ class MapViewModel @Inject constructor(
         locateJob = viewModelScope.launch {
             _state.value = _state.value.copy(locating = true, lastError = null)
             try {
-                var fix: AmapLocationFix? = null
-                amap.requestOnce().collect { f -> fix = f }
+                var fix: LocationFix? = null
+                locator.requestOnce().collect { f -> fix = f }
                 val f = fix
                 if (f == null) {
                     _state.value = _state.value.copy(locating = false, lastError = "定位失败,请稍后重试")
@@ -138,13 +141,11 @@ class MapViewModel @Inject constructor(
                             )
                         }
                 }
-            } catch (e: AmapLocationException) {
-                _state.value = _state.value.copy(
-                    locating = false,
-                    lastError = AmapLocationProvider.describe(e.code, e.message)
-                )
-            } catch (e: Exception) {
-                _state.value = _state.value.copy(locating = false, lastError = "定位失败:${e.message}")
+            } catch (e: LocationUnavailableException) {
+                _state.value = _state.value.copy(locating = false, lastError = e.reason)
+            } catch (t: Throwable) {
+                // 抓 Throwable:高德/系统 SDK 可能抛 UnsatisfiedLinkError 这类 Error
+                _state.value = _state.value.copy(locating = false, lastError = "定位失败:${t.message ?: t.javaClass.simpleName}")
             }
         }
     }

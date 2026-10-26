@@ -19,7 +19,11 @@ import com.ganluo.jiyi.MainActivity
 import com.ganluo.jiyi.R
 import com.ganluo.jiyi.data.local.LocationCache
 import com.ganluo.jiyi.data.repository.LocationRepository
+import com.ganluo.jiyi.location.LocationFix
+import com.ganluo.jiyi.location.LocationUnavailableException
+import com.ganluo.jiyi.location.SystemLocationProvider
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -35,24 +39,38 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
- * 后台位置共享 前台服务(2.1):
+ * 后台位置共享 前台服务(1.0.22)
  *
- *  - **权限感知启动**:没定位权限时不启动 FGS(否则 Android 14 直接 SecurityException),
- *    只登记 pending,等权限授予后由 MainActivity 再调一次 [start]
- *  - **等待授权**:Service 内如果发现没权限,不会退出,而是每 5s 检查一次,权限一到立刻开始
- *  - **失败重试**:定位出错按 5s → 10s → 30s → 60s 退避重试,不会一次失败就躺平
- *  - **智能节流**:位移 >100m 或 距上次上传 >5min 才上传
- *  - **本地缓存**:每次拿到定位先写 [LocationCache],地图页可以秒显示
+ * 1.0.22 关键改动 —— **不再使用高德定位 SDK**,改用系统 LocationManager:
+ *  - 1.0.20 / 1.0.21 的「打开就闪退」根因是启动即自动拉起的本服务里调用了高德定位,
+ *    高德会 dlopen 自己的 native 库并执行大量内部初始化,异常是 UnsatisfiedLinkError /
+ *    NoClassDefFoundError 这类 **Error**(不是 Exception),`catch (e: Exception)` 抓不到,
+ *    在协程里直接掀翻整个进程。
+ *  - 现在:定位走系统 GPS/基站(无 native 依赖、无 key、无配额),坐标系在 provider 内
+ *    统一 WGS-84 → GCJ-02 转换,地图显示不偏移。
+ *  - 同时把这里所有乐观假设都加了兜底:`catch (Throwable)` + [CoroutineExceptionHandler] +
+ *    onCreate 全程 try,保证**这个服务永远不能把 App 弄崩**。
+ *
+ * 其它行为保持不变:
+ *  - 权限感知启动(没权限不 startForeground,避免 Android 14 SecurityException)
+ *  - 定位失败 5s → 10s → 30s → 60s 退避重试
+ *  - 位移 > 100m 或距上次上传 > 5min 才上报
+ *  - 每次拿到定位先写本地缓存,地图页可秒显示
  */
 @AndroidEntryPoint
 class LocationShareService : Service() {
 
     @Inject lateinit var locRepo: LocationRepository
-    @Inject lateinit var amap: AmapLocationProvider
+    @Inject lateinit var locator: SystemLocationProvider
     @Inject lateinit var sharingState: LocationSharingState
     @Inject lateinit var cache: LocationCache
 
-    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    /** 兜底:协程里漏出来的任何异常都不许带走进程 */
+    private val crashGuard = CoroutineExceptionHandler { _, t ->
+        Log.e(TAG, "coroutine crashed (swallowed)", t)
+    }
+
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob() + crashGuard)
     private var shareJob: Job? = null
 
     private var lastUploadedLat = 0.0
@@ -63,85 +81,84 @@ class LocationShareService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        Log.i(TAG, "Service onCreate")
-        ensureChannel()
-        // 只有拿到权限才允许以 location 类型进入前台(Android 14 强校验)
-        val ok = startInForegroundSafely()
-        Log.i(TAG, "startForeground ok=$ok")
-        sharingState.set(ok)
+        // 整个 onCreate 包一层:通知渠道 / startForeground 任何一步炸了都不许闪退
+        runCatching {
+            Log.i(TAG, "Service onCreate")
+            ensureChannel()
+            val ok = startInForegroundSafely()
+            Log.i(TAG, "startForeground ok=$ok")
+            sharingState.set(ok)
+        }.onFailure { Log.e(TAG, "onCreate failed", it) }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.i(TAG, "onStartCommand action=${intent?.action}")
-        if (intent?.action == ACTION_STOP) {
-            stopSelf()
-            return START_NOT_STICKY
-        }
-        if (shareJob?.isActive == true) return START_STICKY
-
-        shareJob = scope.launch {
-            // ===== 阶段 1:等服务获得定位权限 =====
-            if (!hasForegroundPerm()) {
-                Log.w(TAG, "no location permission yet, waiting…")
-                updateNotification(NotificationMode.NO_PERM, "等待定位权限")
-                while (!hasForegroundPerm()) {
-                    delay(5_000L)
-                }
-                Log.i(TAG, "permission granted, starting location")
-                startInForegroundSafely()
+        runCatching {
+            Log.i(TAG, "onStartCommand action=${intent?.action}")
+            if (intent?.action == ACTION_STOP) {
+                stopSelf()
+                return START_NOT_STICKY
             }
-
-            // ===== 阶段 2:定位 + 上传(带退避重试)=====
-            var backoff = 5_000L
-            while (true) {
-                try {
-                    // 2.1 先单次定位,快速拿到第一个点
-                    var gotFix = false
-                    amap.requestOnce().collect { fix ->
-                        gotFix = true
-                        handleFix(fix)
-                    }
-                    if (!gotFix) throw IllegalStateException("no fix")
-
-                    // 2.2 切持续定位(30s 一次)
-                    updateNotification(NotificationMode.REAL_TIME, "持续定位中")
-                    amap.startContinuous(intervalMs = LOCATION_INTERVAL_MS) { e ->
-                        Log.w(TAG, "continuous error ${e.code}: ${e.message}")
-                    }.collectLatest { fix ->
-                        handleFix(fix)
-                    }
-                    // 流正常结束(极少见)→ 退避后重来
-                    backoff = 5_000L
-                } catch (e: AmapLocationException) {
-                    val msg = AmapLocationProvider.describe(e.code, e.message)
-                    Log.e(TAG, "locate failed: $msg", e)
-                    updateNotification(NotificationMode.ERROR, msg)
-                    delay(backoff)
-                    backoff = (backoff * 2).coerceAtMost(MAX_BACKOFF_MS)
-                } catch (e: Exception) {
-                    Log.e(TAG, "location loop error", e)
-                    updateNotification(NotificationMode.ERROR, "定位异常,重试中…")
-                    delay(backoff)
-                    backoff = (backoff * 2).coerceAtMost(MAX_BACKOFF_MS)
-                }
-            }
-        }
+            if (shareJob?.isActive == true) return START_STICKY
+            shareJob = scope.launch { locationLoop() }
+        }.onFailure { Log.e(TAG, "onStartCommand failed", it) }
         return START_STICKY
     }
 
     override fun onDestroy() {
         Log.i(TAG, "Service onDestroy")
-        shareJob?.cancel()
+        runCatching { shareJob?.cancel() }
         shareJob = null
-        scope.cancel()
+        runCatching { scope.cancel() }
         sharingState.set(false)
         sRunning.set(0)
         super.onDestroy()
     }
 
-    // ================= 核心:一次定位结果的处理 =================
+    // ================= 主循环 =================
 
-    private suspend fun handleFix(fix: AmapLocationFix) {
+    private suspend fun locationLoop() {
+        // 阶段 1:等权限(用户可能还没点允许)
+        if (!hasForegroundPerm()) {
+            Log.w(TAG, "no location permission yet, waiting…")
+            updateNotification(NotificationMode.NO_PERM, "等待定位权限")
+            while (!hasForegroundPerm()) delay(5_000L)
+            Log.i(TAG, "permission granted, starting location")
+            startInForegroundSafely()
+        }
+
+        // 阶段 2:定位 + 上传(退避重试,任何 Throwable 都不退出)
+        var backoff = 5_000L
+        while (true) {
+            try {
+                updateNotification(NotificationMode.REAL_TIME, "持续定位中")
+                locator.startContinuous(intervalMs = LOCATION_INTERVAL_MS) { err ->
+                    Log.w(TAG, "continuous error: $err")
+                    updateNotification(NotificationMode.ERROR, err)
+                }.collectLatest { fix ->
+                    handleFix(fix)
+                }
+                // 流正常结束(极少见)→ 退避后重来
+                backoff = 5_000L
+                delay(backoff)
+            } catch (e: LocationUnavailableException) {
+                Log.e(TAG, "locate failed: ${e.reason}", e)
+                updateNotification(NotificationMode.ERROR, e.reason)
+                delay(backoff)
+                backoff = (backoff * 2).coerceAtMost(MAX_BACKOFF_MS)
+            } catch (t: Throwable) {
+                // 关键:抓 Throwable 而非 Exception。UnsatisfiedLinkError /
+                // NoClassDefFoundError / OutOfMemory 等都是 Error,catch(Exception) 抓不到。
+                Log.e(TAG, "location loop error (swallowed)", t)
+                updateNotification(NotificationMode.ERROR, "定位异常,重试中…")
+                delay(backoff)
+                backoff = (backoff * 2).coerceAtMost(MAX_BACKOFF_MS)
+            }
+        }
+    }
+
+    // ================= 一次定位结果的处理 =================
+
+    private suspend fun handleFix(fix: LocationFix) {
         // 1) 先落本地缓存(地图页 / 冷启动秒显示,零成本)
         runCatching { cache.saveMy(fix.lat, fix.lng, fix.accuracy, fix.timestamp) }
 
@@ -193,8 +210,8 @@ class LocationShareService : Service() {
                 startForeground(NOTIF_ID, n)
             }
             true
-        } catch (e: Exception) {
-            Log.e(TAG, "startForeground failed", e)
+        } catch (t: Throwable) {
+            Log.e(TAG, "startForeground failed", t)
             false
         }
     }
@@ -281,7 +298,7 @@ class LocationShareService : Service() {
 
         private const val MIN_DISTANCE_M = 100.0
         private const val MAX_INTERVAL_MS = 5L * 60_000
-        private const val LOCATION_INTERVAL_MS = 30_000L
+        private const val LOCATION_INTERVAL_MS = 60_000L
         private const val MAX_BACKOFF_MS = 60_000L
 
         private val sRunning = java.util.concurrent.atomic.AtomicInteger(0)
@@ -302,20 +319,21 @@ class LocationShareService : Service() {
          *  - **没有定位权限 → 直接返回,不启动 FGS**(避免 Android 14 SecurityException 崩溃)
          *    权限授予后需要 UI 层再调一次
          *  - 已在跑 → 跳过
+         *  - 任何异常都吞掉:启动失败最多是「没定位」,绝不能是「闪退」
          */
         fun start(ctx: Context) {
-            if (!hasLocationPermission(ctx)) {
-                Log.w(TAG, "start skipped: no location permission yet")
-                return
-            }
-            if (sRunning.get() > 0) {
-                Log.i(TAG, "already running, skip")
-                return
-            }
-            sRunning.set(1)
-            Log.i(TAG, "starting foreground service")
-            val intent = Intent(ctx, LocationShareService::class.java)
             runCatching {
+                if (!hasLocationPermission(ctx)) {
+                    Log.w(TAG, "start skipped: no location permission yet")
+                    return
+                }
+                if (sRunning.get() > 0) {
+                    Log.i(TAG, "already running, skip")
+                    return
+                }
+                sRunning.set(1)
+                Log.i(TAG, "starting foreground service")
+                val intent = Intent(ctx, LocationShareService::class.java)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     ctx.startForegroundService(intent)
                 } else {
@@ -328,9 +346,11 @@ class LocationShareService : Service() {
         }
 
         fun stop(ctx: Context) {
-            Log.i(TAG, "stop requested")
-            sRunning.set(0)
-            ctx.stopService(Intent(ctx, LocationShareService::class.java))
+            runCatching {
+                Log.i(TAG, "stop requested")
+                sRunning.set(0)
+                ctx.stopService(Intent(ctx, LocationShareService::class.java))
+            }
         }
 
         fun isRunning(): Boolean = sRunning.get() > 0
