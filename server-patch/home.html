@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>吉壹 · 两个人的日常</title>
+<meta name="description" content="吉壹 Android 客户端下载">
+<style>
+*{box-sizing:border-box}
+body{
+  margin:0; background:#FFF8FA; color:#2E2A2C;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  -webkit-text-size-adjust:100%;
+}
+.page{width:100%;max-width:430px;margin:0 auto;padding:24px 16px 32px}
+.hero{text-align:center}
+.logo{
+  width:84px;height:84px;border-radius:50%;margin:0 auto 14px;
+  background:linear-gradient(160deg,#FFD3DC,#FFB3C4);
+  line-height:84px;font-size:38px;font-weight:700;color:#E9546B;
+}
+h1{margin:0;font-size:28px;color:#F2697F;letter-spacing:2px}
+.tag{margin:6px 0 0;font-size:14px;color:#7A7378}
+.card{
+  margin-top:22px;background:#fff;border-radius:22px;padding:20px;
+  border:1px solid #FFE3E9;
+}
+.row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.ver{font-size:17px;font-weight:700}
+.pill{
+  font-size:11px;color:#E9546B;background:#FFE3E9;
+  padding:3px 9px;border-radius:99px;font-weight:600;white-space:nowrap
+}
+.btn{
+  display:block;margin:16px 0 8px;padding:15px 10px;border-radius:16px;
+  background:linear-gradient(135deg,#FF8FA3,#F2697F);
+  color:#fff;font-size:17px;font-weight:700;text-align:center;text-decoration:none;
+  box-shadow:0 8px 20px rgba(242,105,127,.3)
+}
+.btn.off{opacity:.55;pointer-events:none}
+.hint{margin:0;font-size:12px;color:#7A7378;text-align:center}
+h2{
+  margin:22px 0 8px;font-size:14px;color:#2E2A2C;
+  border-left:3px solid #FF8FA3;padding-left:8px;line-height:1.2
+}
+.log{margin:0;font-size:13px;line-height:1.8;color:#4A4548;white-space:pre-line}
+.chips{margin-top:16px}
+.chips span{
+  display:inline-block;margin:0 6px 6px 0;padding:5px 10px;border-radius:99px;
+  background:#FDF1F3;color:#7A7378;font-size:11px
+}
+.err{margin:10px 0 0;font-size:12px;color:#E55C5C;text-align:center}
+footer{margin-top:20px;text-align:center;font-size:11px;color:#B5B0B2;line-height:1.9}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="hero">
+    <div class="logo">玉</div>
+    <h1>吉壹</h1>
+    <p class="tag">两个人的日常</p>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <div class="ver" id="verName">正在获取…</div>
+      <div class="pill" id="verCode">—</div>
+    </div>
+
+    <a class="btn off" id="dl" href="#">⬇ 下载 Android 版</a>
+    <p class="hint" id="hint">正在连接服务器…</p>
+
+    <h2>更新内容</h2>
+    <div class="log" id="log">—</div>
+
+    <div class="chips">
+      <span>Android 8.0+</span><span>约 51 MB</span><span>无需登录即可下载</span>
+    </div>
+    <p class="err" id="err"></p>
+  </div>
+
+  <footer>
+    已经装过吉壹?打开 App 会自动提示更新。<br>
+    © <span id="y"></span> 吉壹
+  </footer>
+</div>
+
+<script>
+(function(){
+  document.getElementById('y').textContent = new Date().getFullYear();
+  var verName=document.getElementById('verName'),
+      verCode=document.getElementById('verCode'),
+      dl=document.getElementById('dl'),
+      hint=document.getElementById('hint'),
+      log=document.getElementById('log'),
+      err=document.getElementById('err');
+
+  fetch('/api/app/version',{cache:'no-store'})
+    .then(function(r){return r.json()})
+    .then(function(res){
+      var d=res&&res.data;
+      if(!res||res.code!==0||!d) throw new Error('bad response');
+      verName.textContent='v'+(d.latest_name||'—');
+      verCode.textContent='versionCode '+(d.latest_code||'—');
+      if(d.download_url){
+        dl.href=d.download_url;
+        dl.className='btn';
+      }
+      hint.textContent='点击按钮下载 APK,安装时请允许「未知来源」';
+      log.textContent=(d.changelog||'暂无更新说明').trim();
+    })
+    .catch(function(e){
+      verName.textContent='吉壹 Android';
+      verCode.textContent='—';
+      hint.textContent='版本信息获取失败,请刷新页面重试';
+      log.textContent='暂无更新说明';
+      err.textContent='(' + (e&&e.message?e.message:'未知错误') + ')';
+    });
+})();
+</script>
+</body>
+</html>
