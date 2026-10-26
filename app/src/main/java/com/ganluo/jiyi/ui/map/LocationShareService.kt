@@ -17,6 +17,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.ganluo.jiyi.MainActivity
 import com.ganluo.jiyi.R
+import com.ganluo.jiyi.data.local.LocationCache
 import com.ganluo.jiyi.data.repository.LocationRepository
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
@@ -24,6 +25,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -33,12 +35,14 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
- * 后台位置共享 前台服务(默认开启):
- *  - 启动: `LocationShareService.start(ctx)` — 登录成功 / App 启动后自动调
- *  - 智能省电:距离上次上传 >100m **OR** 时间 >5min 才上传
- *  - 没定位权限时,以「轻松模式」空跑,不闪退不崩溃,通知栏文字友好提示
- *  - 通知栏低调显示「运行中」,只点开才能看详情
- *  - 通知带「停止」按钮(用户主动终止入口)
+ * 后台位置共享 前台服务(2.1):
+ *
+ *  - **权限感知启动**:没定位权限时不启动 FGS(否则 Android 14 直接 SecurityException),
+ *    只登记 pending,等权限授予后由 MainActivity 再调一次 [start]
+ *  - **等待授权**:Service 内如果发现没权限,不会退出,而是每 5s 检查一次,权限一到立刻开始
+ *  - **失败重试**:定位出错按 5s → 10s → 30s → 60s 退避重试,不会一次失败就躺平
+ *  - **智能节流**:位移 >100m 或 距上次上传 >5min 才上传
+ *  - **本地缓存**:每次拿到定位先写 [LocationCache],地图页可以秒显示
  */
 @AndroidEntryPoint
 class LocationShareService : Service() {
@@ -46,16 +50,14 @@ class LocationShareService : Service() {
     @Inject lateinit var locRepo: LocationRepository
     @Inject lateinit var amap: AmapLocationProvider
     @Inject lateinit var sharingState: LocationSharingState
+    @Inject lateinit var cache: LocationCache
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var shareJob: Job? = null
 
-    private var lastUploadedLat: Double = 0.0
-    private var lastUploadedLng: Double = 0.0
-    private var lastUploadedAt: Long = 0L
-
-    /** 当前 Service 是否真的有定位权限 */
-    private var hasLocationPerm: Boolean = false
+    private var lastUploadedLat = 0.0
+    private var lastUploadedLng = 0.0
+    private var lastUploadedAt = 0L
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -63,45 +65,65 @@ class LocationShareService : Service() {
         super.onCreate()
         Log.i(TAG, "Service onCreate")
         ensureChannel()
-        startInForeground(buildNotification(NotificationMode.STARTING, "正在启动…"))
-        sharingState.set(true)
+        // 只有拿到权限才允许以 location 类型进入前台(Android 14 强校验)
+        val ok = startInForegroundSafely()
+        Log.i(TAG, "startForeground ok=$ok")
+        sharingState.set(ok)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.i(TAG, "Service onStartCommand action=${intent?.action}")
-        // 通知栏「停止」按钮点了之后
+        Log.i(TAG, "onStartCommand action=${intent?.action}")
         if (intent?.action == ACTION_STOP) {
             stopSelf()
             return START_NOT_STICKY
         }
         if (shareJob?.isActive == true) return START_STICKY
 
-        hasLocationPerm = checkLocationPerm(this)
         shareJob = scope.launch {
-            if (!hasLocationPerm) {
-                Log.w(TAG, "no location perm, idle loop")
-                updateNotification(NotificationMode.NO_PERM, "未授予定位权限,无法上传")
-                return@launch
-            }
-            // 1) 启动先拿一次
-            try {
-                amap.requestOnce().collect { fix ->
-                    Log.i(TAG, "requestOnce fix: $fix")
-                    handleFix(fix)
-                    return@collect
+            // ===== 阶段 1:等服务获得定位权限 =====
+            if (!hasForegroundPerm()) {
+                Log.w(TAG, "no location permission yet, waiting…")
+                updateNotification(NotificationMode.NO_PERM, "等待定位权限")
+                while (!hasForegroundPerm()) {
+                    delay(5_000L)
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "requestOnce failed", e)
-                updateNotification(NotificationMode.REAL_TIME, "正在重试定位…")
+                Log.i(TAG, "permission granted, starting location")
+                startInForegroundSafely()
             }
-            // 2) 然后 30s 持续定位
-            try {
-                amap.startContinuous(intervalMs = 30_000L).collectLatest { fix ->
-                    Log.d(TAG, "continuous fix: $fix")
-                    handleFix(fix)
+
+            // ===== 阶段 2:定位 + 上传(带退避重试)=====
+            var backoff = 5_000L
+            while (true) {
+                try {
+                    // 2.1 先单次定位,快速拿到第一个点
+                    var gotFix = false
+                    amap.requestOnce().collect { fix ->
+                        gotFix = true
+                        handleFix(fix)
+                    }
+                    if (!gotFix) throw IllegalStateException("no fix")
+
+                    // 2.2 切持续定位(30s 一次)
+                    updateNotification(NotificationMode.REAL_TIME, "持续定位中")
+                    amap.startContinuous(intervalMs = LOCATION_INTERVAL_MS) { e ->
+                        Log.w(TAG, "continuous error ${e.code}: ${e.message}")
+                    }.collectLatest { fix ->
+                        handleFix(fix)
+                    }
+                    // 流正常结束(极少见)→ 退避后重来
+                    backoff = 5_000L
+                } catch (e: AmapLocationException) {
+                    val msg = AmapLocationProvider.describe(e.code, e.message)
+                    Log.e(TAG, "locate failed: $msg", e)
+                    updateNotification(NotificationMode.ERROR, msg)
+                    delay(backoff)
+                    backoff = (backoff * 2).coerceAtMost(MAX_BACKOFF_MS)
+                } catch (e: Exception) {
+                    Log.e(TAG, "location loop error", e)
+                    updateNotification(NotificationMode.ERROR, "定位异常,重试中…")
+                    delay(backoff)
+                    backoff = (backoff * 2).coerceAtMost(MAX_BACKOFF_MS)
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "startContinuous failed", e)
             }
         }
         return START_STICKY
@@ -113,54 +135,75 @@ class LocationShareService : Service() {
         shareJob = null
         scope.cancel()
         sharingState.set(false)
+        sRunning.set(0)
         super.onDestroy()
     }
 
+    // ================= 核心:一次定位结果的处理 =================
+
     private suspend fun handleFix(fix: AmapLocationFix) {
+        // 1) 先落本地缓存(地图页 / 冷启动秒显示,零成本)
+        runCatching { cache.saveMy(fix.lat, fix.lng, fix.accuracy, fix.timestamp) }
+
+        // 2) 节流判断
         val now = System.currentTimeMillis()
-        val moved = if (lastUploadedAt == 0L) {
-            true
-        } else {
-            val meters = haversineMeters(fix.lat, fix.lng, lastUploadedLat, lastUploadedLng)
-            meters > MIN_DISTANCE_M
-        }
+        val moved = lastUploadedAt == 0L ||
+                haversineMeters(fix.lat, fix.lng, lastUploadedLat, lastUploadedLng) > MIN_DISTANCE_M
         val timedOut = (now - lastUploadedAt) > MAX_INTERVAL_MS
-        if (moved || timedOut) {
-            runCatching { locRepo.upload(fix.lat, fix.lng, fix.accuracy) }
-                .onSuccess {
-                    Log.i(TAG, "uploaded ok: $fix")
-                    lastUploadedLat = fix.lat
-                    lastUploadedLng = fix.lng
-                    lastUploadedAt = now
-                    updateNotification(NotificationMode.REAL_TIME, "刚刚上传")
-                }
-                .onFailure { e ->
-                    Log.e(TAG, "upload failed: $fix", e)
-                    updateNotification(NotificationMode.REAL_TIME, "上传失败,稍后重试")
-                }
-        } else {
+
+        if (!moved && !timedOut) {
             val sinceMin = (now - lastUploadedAt) / 60_000
             updateNotification(NotificationMode.SAVING, "静止中 · 上次 ${sinceMin} 分钟前")
+            return
         }
+
+        runCatching { locRepo.upload(fix.lat, fix.lng, fix.accuracy) }
+            .onSuccess {
+                Log.i(TAG, "uploaded ok lat=${fix.lat} lng=${fix.lng}")
+                lastUploadedLat = fix.lat
+                lastUploadedLng = fix.lng
+                lastUploadedAt = now
+                updateNotification(NotificationMode.REAL_TIME, "刚刚更新")
+            }
+            .onFailure { e ->
+                Log.e(TAG, "upload failed", e)
+                updateNotification(NotificationMode.ERROR, "上传失败,稍后重试")
+            }
     }
 
-    private enum class NotificationMode { STARTING, REAL_TIME, SAVING, NO_PERM }
+    // ================= 前台通知 =================
 
-    private fun startInForeground(initial: Notification) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(
-                NOTIF_ID,
-                initial,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+    private enum class NotificationMode { STARTING, REAL_TIME, SAVING, NO_PERM, ERROR }
+
+    /** 返回是否成功进入前台 */
+    private fun startInForegroundSafely(): Boolean {
+        return try {
+            val n = buildNotification(
+                if (hasForegroundPerm()) NotificationMode.REAL_TIME else NotificationMode.NO_PERM,
+                if (hasForegroundPerm()) "已启动" else "等待定位权限"
             )
-        } else {
-            startForeground(NOTIF_ID, initial)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                // 只有真的有定位权限时才声明 location 类型
+                if (hasForegroundPerm()) {
+                    startForeground(NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+                } else {
+                    startForeground(NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_NONE)
+                }
+            } else {
+                startForeground(NOTIF_ID, n)
+            }
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "startForeground failed", e)
+            false
         }
     }
 
     private fun updateNotification(mode: NotificationMode, subText: String) {
-        val nm = getSystemService(NotificationManager::class.java) ?: return
-        nm.notify(NOTIF_ID, buildNotification(mode, subText))
+        runCatching {
+            val nm = getSystemService(NotificationManager::class.java) ?: return
+            nm.notify(NOTIF_ID, buildNotification(mode, subText))
+        }
     }
 
     private fun buildNotification(mode: NotificationMode, subText: String): Notification {
@@ -173,20 +216,21 @@ class LocationShareService : Service() {
         )
         val stopIntent = PendingIntent.getService(
             this, 1,
-            Intent(this, LocationShareService::class.java).apply {
-                action = ACTION_STOP
-            },
+            Intent(this, LocationShareService::class.java).apply { action = ACTION_STOP },
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_marker_me)
             .setContentTitle("吉壹 · 位置共享")
-            .setContentText(when (mode) {
-                NotificationMode.STARTING  -> "启动中…"
-                NotificationMode.REAL_TIME -> "运行中"
-                NotificationMode.SAVING    -> "运行中(省电)"
-                NotificationMode.NO_PERM   -> "需要定位权限"
-            })
+            .setContentText(
+                when (mode) {
+                    NotificationMode.STARTING -> "启动中…"
+                    NotificationMode.REAL_TIME -> "运行中"
+                    NotificationMode.SAVING -> "运行中(省电)"
+                    NotificationMode.NO_PERM -> "需要定位权限"
+                    NotificationMode.ERROR -> "定位异常"
+                }
+            )
             .setSubText(subText)
             .setContentIntent(openIntent)
             .setOngoing(true)
@@ -215,15 +259,7 @@ class LocationShareService : Service() {
         mgr.createNotificationChannel(ch)
     }
 
-    private fun checkLocationPerm(ctx: Context): Boolean {
-        val fine = ContextCompat.checkSelfPermission(
-            ctx, Manifest.permission.ACCESS_FINE_LOCATION
-        ) == PackageManager.PERMISSION_GRANTED
-        val coarse = ContextCompat.checkSelfPermission(
-            ctx, Manifest.permission.ACCESS_COARSE_LOCATION
-        ) == PackageManager.PERMISSION_GRANTED
-        return fine || coarse
-    }
+    private fun hasForegroundPerm(): Boolean = hasLocationPermission(this)
 
     private fun haversineMeters(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Double {
         val r = 6_371_000.0
@@ -245,40 +281,58 @@ class LocationShareService : Service() {
 
         private const val MIN_DISTANCE_M = 100.0
         private const val MAX_INTERVAL_MS = 5L * 60_000
+        private const val LOCATION_INTERVAL_MS = 30_000L
+        private const val MAX_BACKOFF_MS = 60_000L
+
+        private val sRunning = java.util.concurrent.atomic.AtomicInteger(0)
+
+        /** 是否有前台定位权限(粗/精任一) */
+        fun hasLocationPermission(ctx: Context): Boolean {
+            val fine = ContextCompat.checkSelfPermission(
+                ctx, Manifest.permission.ACCESS_FINE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+            val coarse = ContextCompat.checkSelfPermission(
+                ctx, Manifest.permission.ACCESS_COARSE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+            return fine || coarse
+        }
 
         /**
          * 智能 start:
-         *  - 如果 sharingState 已为 true(Service 已在跑)→ 跳过
-         *  - 否则启动前台服务
+         *  - **没有定位权限 → 直接返回,不启动 FGS**(避免 Android 14 SecurityException 崩溃)
+         *    权限授予后需要 UI 层再调一次
+         *  - 已在跑 → 跳过
          */
         fun start(ctx: Context) {
-            // sharingState 是单例,跨进程同步。这里快速读一下当前已知状态;
-            // 但注意:Service 是另一个进程,getInstance 注入是 Application 进程的 DI 图。
-            // 改成:通过全局静态计数(进程内),简单可靠 —— 不持久化,App 重启会重置
-            if (sRefCount.get() > 0) {
-                Log.i(TAG, "already running in this proc, skip start")
+            if (!hasLocationPermission(ctx)) {
+                Log.w(TAG, "start skipped: no location permission yet")
                 return
             }
-            sRefCount.incrementAndGet()
-            Log.i(TAG, "start requested from ${ctx.javaClass.simpleName}")
+            if (sRunning.get() > 0) {
+                Log.i(TAG, "already running, skip")
+                return
+            }
+            sRunning.set(1)
+            Log.i(TAG, "starting foreground service")
             val intent = Intent(ctx, LocationShareService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                ctx.startForegroundService(intent)
-            } else {
-                ctx.startService(intent)
+            runCatching {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    ctx.startForegroundService(intent)
+                } else {
+                    ctx.startService(intent)
+                }
+            }.onFailure {
+                sRunning.set(0)
+                Log.e(TAG, "startForegroundService failed", it)
             }
         }
 
         fun stop(ctx: Context) {
-            Log.i(TAG, "stop requested from ${ctx.javaClass.simpleName}")
-            sRefCount.set(0)
+            Log.i(TAG, "stop requested")
+            sRunning.set(0)
             ctx.stopService(Intent(ctx, LocationShareService::class.java))
         }
 
-        /** 当前 Application 进程内 Service 是不是在跑(只判断本进程,另一进程不感知) */
-        fun isRunningProcess(): Boolean = sRefCount.get() > 0
-
-        // 仅本进程内存计数(简洁可用)
-        private val sRefCount = java.util.concurrent.atomic.AtomicInteger(0)
+        fun isRunning(): Boolean = sRunning.get() > 0
     }
 }

@@ -10,6 +10,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import com.ganluo.jiyi.permissions.LocationPermissionHelper
+import com.ganluo.jiyi.ui.map.LocationShareService
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
@@ -61,9 +66,24 @@ fun AppRoot(
         false, null -> Route.LOGIN
     }
 
-    // 有 token 时自动 start 位置共享 Service
+    // 有 token 时:先确保定位权限,授予后再启动位置共享 Service
+    // (没权限就启动 FGS 会在 Android 14 抛 SecurityException,所以必须走到这一步才启)
+    val ctx = LocalContext.current
+    val locPermLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { result ->
+        val granted = result[android.Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+                      result[android.Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        if (granted) LocationShareService.start(ctx)
+    }
     LaunchedEffect(hasToken) {
-        if (hasToken == true) loginVm.ensureServiceStarted()
+        if (hasToken == true) {
+            if (LocationShareService.hasLocationPermission(ctx)) {
+                LocationShareService.start(ctx)
+            } else {
+                locPermLauncher.launch(LocationPermissionHelper.FOREGROUND_PERMISSIONS.toTypedArray())
+            }
+        }
     }
 
     // 当前是否在 tab 屏(login / chat / detail 全屏,没底栏)
