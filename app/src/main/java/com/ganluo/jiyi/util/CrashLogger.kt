@@ -180,6 +180,32 @@ object CrashLogger {
         false
     }
 
+    /**
+     * 非致命异常上报(1.0.23 新增)。
+     *
+     * 场景:有些异常被我们 catch 了,但**后果很严重**——
+     * 比如前台服务里 startForeground() 失败:虽然没崩,但系统 10 秒后会
+     * 无条件杀掉进程(用户看到的就是「闪退」,而且没有任何 Java 堆栈)。
+     * 这种必须上报,否则线上永远查不到原因。
+     *
+     * 走独立线程,不阻塞调用方。
+     */
+    fun reportNonFatal(ctx: Context, tag: String, t: Throwable? = null) {
+        val app = ctx.applicationContext
+        runCatching {
+            val stack = (if (t != null) Log.getStackTraceString(t) else "(no stack)").take(16 * 1024)
+            val json = """
+                {"type":"warning","time":"${ts()}","device":"${jsonEscape(deviceInfo(app))}",
+                 "app_version":"${BuildConfig.VERSION_NAME}","app_code":${BuildConfig.VERSION_CODE},
+                 "thread":"-","stack":"${jsonEscape(tag + "\n" + stack)}",
+                 "session":"${jsonEscape(readSessionTail(app))}"}
+            """.trimIndent().replace("\n", "")
+            Thread {
+                runCatching { postCrash(app, json) }
+            }.apply { isDaemon = true }.start()
+        }
+    }
+
     // ===================== 本地文件 =====================
 
     private fun writeCrash(ctx: Context, t: Thread, e: Throwable) {

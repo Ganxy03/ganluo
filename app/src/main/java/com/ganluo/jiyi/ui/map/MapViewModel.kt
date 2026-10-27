@@ -176,8 +176,9 @@ class MapViewModel @Inject constructor(
         pollJob = null
     }
 
+    /** 用户在界面上手动开启 = 强制重试(忽略「本机曾失败」标记) */
     fun startSharing() {
-        LocationShareService.start(appContext)
+        LocationShareService.start(appContext, force = true)
     }
 
     fun stopSharing() {

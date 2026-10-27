@@ -22,6 +22,7 @@ import com.ganluo.jiyi.data.repository.LocationRepository
 import com.ganluo.jiyi.location.LocationFix
 import com.ganluo.jiyi.location.LocationUnavailableException
 import com.ganluo.jiyi.location.SystemLocationProvider
+import com.ganluo.jiyi.util.CrashLogger
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -73,6 +74,9 @@ class LocationShareService : Service() {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob() + crashGuard)
     private var shareJob: Job? = null
 
+    /** 是否成功进入前台(onCreate 里设置)。没进前台就必须立刻 stopSelf */
+    @Volatile private var foregroundOk = false
+
     private var lastUploadedLat = 0.0
     private var lastUploadedLng = 0.0
     private var lastUploadedAt = 0L
@@ -81,17 +85,46 @@ class LocationShareService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        // 整个 onCreate 包一层:通知渠道 / startForeground 任何一步炸了都不许闪退
-        runCatching {
+        CrashLogger.stage(this, "svc.onCreate")
+        val ok = runCatching {
             Log.i(TAG, "Service onCreate")
             ensureChannel()
-            val ok = startInForegroundSafely()
-            Log.i(TAG, "startForeground ok=$ok")
-            sharingState.set(ok)
-        }.onFailure { Log.e(TAG, "onCreate failed", it) }
+            startInForegroundSafely()
+        }.onFailure {
+            Log.e(TAG, "onCreate failed", it)
+            CrashLogger.reportNonFatal(this, "svc.onCreate failed", it)
+        }.getOrDefault(false)
+
+        Log.i(TAG, "startForeground ok=$ok")
+        foregroundOk = ok
+        sharingState.set(ok)
+
+        if (!ok) {
+            // ⚠️ 关键自救:startForegroundService() 之后如果没能真正 startForeground(),
+            //    系统会在 10 秒内 **直接杀掉整个进程**——没有任何 Java 堆栈,用户看到的就是闪退。
+            //    (1.0.22 线上小米 Android 15 的闪退就是这条路径。)
+            //    这里必须立刻 stopSelf(),把「后台共享不可用」降级成「只是没开共享」。
+            CrashLogger.stage(this, "svc.fg.failed -> stopSelf")
+            // 记一笔「这台机器不允许后台定位服务」,以后不再自动尝试,
+            // 避免每次启动都赌一次系统杀进程。用户可在「我的→位置共享」手动重试。
+            setBackgroundBlocked(this, true)
+            sRunning.set(0)
+            stopSelf()
+        } else {
+            setBackgroundBlocked(this, false)
+            CrashLogger.stage(this, "svc.fg.ok")
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        CrashLogger.stage(this, "svc.onStartCommand")
+        // 没能进前台就直接退出,绝不能让系统等 10 秒后来杀进程
+        if (!foregroundOk) {
+            Log.w(TAG, "not in foreground, stopSelf")
+            sRunning.set(0)
+            stopSelf()
+            return START_NOT_STICKY
+        }
         runCatching {
             Log.i(TAG, "onStartCommand action=${intent?.action}")
             if (intent?.action == ACTION_STOP) {
@@ -127,6 +160,7 @@ class LocationShareService : Service() {
         }
 
         // 阶段 2:定位 + 上传(退避重试,任何 Throwable 都不退出)
+        CrashLogger.stage(this, "svc.loop.enter")
         var backoff = 5_000L
         while (true) {
             try {
@@ -159,6 +193,7 @@ class LocationShareService : Service() {
     // ================= 一次定位结果的处理 =================
 
     private suspend fun handleFix(fix: LocationFix) {
+        if (lastUploadedAt == 0L) CrashLogger.stage(this, "svc.first.fix")
         // 1) 先落本地缓存(地图页 / 冷启动秒显示,零成本)
         runCatching { cache.saveMy(fix.lat, fix.lng, fix.accuracy, fix.timestamp) }
 
@@ -192,28 +227,54 @@ class LocationShareService : Service() {
 
     private enum class NotificationMode { STARTING, REAL_TIME, SAVING, NO_PERM, ERROR }
 
-    /** 返回是否成功进入前台 */
+    /**
+     * 进入前台。返回是否成功 —— **失败必须由调用方 stopSelf()**,否则系统会杀进程。
+     *
+     * 分三级降级尝试,尽量把服务真正推进前台:
+     *  1. Android 14+:带 FOREGROUND_SERVICE_TYPE_LOCATION(有定位权限时)
+     *  2. Android 14+ 无权限:不带类型(不声明 location,不会被要求 location 权限)
+     *  3. 老系统 / 上面失败:普通两参 startForeground
+     */
     private fun startInForegroundSafely(): Boolean {
-        return try {
-            val n = buildNotification(
+        val n = runCatching {
+            buildNotification(
                 if (hasForegroundPerm()) NotificationMode.REAL_TIME else NotificationMode.NO_PERM,
                 if (hasForegroundPerm()) "已启动" else "等待定位权限"
             )
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                // 只有真的有定位权限时才声明 location 类型
-                if (hasForegroundPerm()) {
-                    startForeground(NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
-                } else {
-                    startForeground(NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_NONE)
-                }
-            } else {
-                startForeground(NOTIF_ID, n)
-            }
-            true
-        } catch (t: Throwable) {
-            Log.e(TAG, "startForeground failed", t)
-            false
+        }.getOrElse {
+            Log.e(TAG, "buildNotification failed", it)
+            CrashLogger.reportNonFatal(this, "buildNotification failed", it)
+            return false
         }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            if (hasForegroundPerm()) {
+                runCatching {
+                    startForeground(NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+                }.onSuccess {
+                    return true
+                }.onFailure {
+                    // 常见原因:厂商 ROM 限制 location 类型 FGS / 后台启动限制
+                    Log.e(TAG, "startForeground(location) failed", it)
+                    CrashLogger.reportNonFatal(this, "startForeground(location) threw", it)
+                }
+            }
+            runCatching {
+                startForeground(NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_NONE)
+            }.onSuccess {
+                return true
+            }.onFailure {
+                Log.e(TAG, "startForeground(none) failed", it)
+                CrashLogger.reportNonFatal(this, "startForeground(none) threw", it)
+            }
+        }
+
+        return runCatching { startForeground(NOTIF_ID, n) }
+            .onFailure {
+                Log.e(TAG, "startForeground failed", it)
+                CrashLogger.reportNonFatal(this, "startForeground threw", it)
+            }
+            .isSuccess
     }
 
     private fun updateNotification(mode: NotificationMode, subText: String) {
@@ -321,8 +382,12 @@ class LocationShareService : Service() {
          *  - 已在跑 → 跳过
          *  - 任何异常都吞掉:启动失败最多是「没定位」,绝不能是「闪退」
          */
-        fun start(ctx: Context) {
+        fun start(ctx: Context, force: Boolean = false) {
             runCatching {
+                if (!force && isBackgroundBlocked(ctx)) {
+                    Log.w(TAG, "start skipped: foreground service known-blocked on this device")
+                    return
+                }
                 if (!hasLocationPermission(ctx)) {
                     Log.w(TAG, "start skipped: no location permission yet")
                     return
@@ -339,9 +404,11 @@ class LocationShareService : Service() {
                 } else {
                     ctx.startService(intent)
                 }
+                CrashLogger.stage(ctx, "svc.start.requested")
             }.onFailure {
                 sRunning.set(0)
                 Log.e(TAG, "startForegroundService failed", it)
+                CrashLogger.reportNonFatal(ctx, "startForegroundService threw", it)
             }
         }
 
@@ -354,5 +421,22 @@ class LocationShareService : Service() {
         }
 
         fun isRunning(): Boolean = sRunning.get() > 0
+
+        // ===== 厂商 ROM 兼容开关(1.0.23)=====
+        // 有些机型(线上首例:小米 Android 15)拒绝 location 类型前台服务,
+        // 失败后系统会直接杀进程。失败一次就记住,不再自动重试。
+        private const val PREF = "loc_share"
+        private const val KEY_BLOCKED = "fgs_blocked"
+
+        private fun prefs(ctx: Context) =
+            ctx.applicationContext.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+
+        /** 本机是否已被判定「后台定位服务不可用」 */
+        fun isBackgroundBlocked(ctx: Context): Boolean =
+            runCatching { prefs(ctx).getBoolean(KEY_BLOCKED, false) }.getOrDefault(false)
+
+        private fun setBackgroundBlocked(ctx: Context, blocked: Boolean) {
+            runCatching { prefs(ctx).edit().putBoolean(KEY_BLOCKED, blocked).apply() }
+        }
     }
 }
