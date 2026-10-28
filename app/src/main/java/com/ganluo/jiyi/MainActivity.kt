@@ -20,7 +20,12 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             JiyiTheme {
-                AppRoot()
+                // 仅 debug:首页排版预览(不登录、假数据),见 HomePreviewScreen
+                if (BuildConfig.DEBUG && intent.getBooleanExtra("preview_home", false)) {
+                    com.ganluo.jiyi.ui.home.HomePreviewScreen()
+                } else {
+                    AppRoot()
+                }
             }
         }
     }

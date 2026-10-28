@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -59,6 +60,8 @@ fun HomeScreen(
     val loading by vm.loading.collectAsStateWithLifecycle()
     val error by vm.error.collectAsStateWithLifecycle()
     val monthMarks by vm.monthMarks.collectAsStateWithLifecycle()
+    val composerText by vm.composerText.collectAsStateWithLifecycle()
+    val composerUpload by vm.composerUpload.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
 
     LaunchedEffect(Unit) { vm.load() }
@@ -87,6 +90,7 @@ fun HomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .imePadding()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = Spacing.screenH, vertical = Spacing.sm)
         ) {
@@ -126,7 +130,32 @@ fun HomeScreen(
                 meAvatar = me?.avatar,
                 messages = messages,
                 onOpenChat = onOpenChat,
-                onGoProfile = onGoProfile
+                onGoProfile = onGoProfile,
+                composer = if (partner != null) {
+                    {
+                        InlineMessageComposer(
+                            text = composerText,
+                            onTextChange = vm::setComposerText,
+                            upload = composerUpload,
+                            onPickImage = {
+                                pickImage.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                )
+                            },
+                            onClearImage = vm::clearComposerImage,
+                            onSend = {
+                                val ready = composerUpload as? ComposerUpload.Ready
+                                vm.sendMessage(
+                                    content = composerText.trim(),
+                                    replyToId = null,
+                                    imageUrl = ready?.url,
+                                    imageWidth = ready?.width,
+                                    imageHeight = ready?.height
+                                )
+                            }
+                        )
+                    }
+                } else null
             )
 
             Spacer(Modifier.height(Spacing.xxxl))

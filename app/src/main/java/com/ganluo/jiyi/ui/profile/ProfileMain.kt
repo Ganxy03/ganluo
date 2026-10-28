@@ -66,6 +66,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ganluo.jiyi.BuildConfig
 import com.ganluo.jiyi.data.remote.dto.BindRequestDto
 import com.ganluo.jiyi.ui.component.Avatar
+import com.ganluo.jiyi.ui.FeatureFlags
 import com.ganluo.jiyi.ui.component.CompactTopBar
 import com.ganluo.jiyi.ui.component.SectionTitle
 import com.ganluo.jiyi.ui.theme.Primary
@@ -375,22 +376,25 @@ fun ProfileMain(
             SectionTitle(label = "更多")
             Spacer(Modifier.height(Spacing.xs))
             GroupedList {
-                ListRow(
-                    icon = Icons.Filled.LocationOn,
-                    title = "位置共享",
-                    subtitle = if (sharing) "已开启 · TA 在地图能看到你"
-                              else "未运行",
-                    subtitleColor = if (sharing) Primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    onClick = onOpenLocationSub
-                )
-                GroupedDivider()
-                ListRow(
-                    icon = Icons.Filled.Map,
-                    title = "查看地图",
-                    subtitle = "查看我和 TA 的位置",
-                    onClick = onOpenMapSub
-                )
-                GroupedDivider()
+                // 地图 / 定位共享:1.0.24 起暂时隐藏(机型兼容性问题),见 FeatureFlags.LOCATION
+                if (FeatureFlags.LOCATION) {
+                    ListRow(
+                        icon = Icons.Filled.LocationOn,
+                        title = "位置共享",
+                        subtitle = if (sharing) "已开启 · TA 在地图能看到你"
+                                  else "未运行",
+                        subtitleColor = if (sharing) Primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        onClick = onOpenLocationSub
+                    )
+                    GroupedDivider()
+                    ListRow(
+                        icon = Icons.Filled.Map,
+                        title = "查看地图",
+                        subtitle = "查看我和 TA 的位置",
+                        onClick = onOpenMapSub
+                    )
+                    GroupedDivider()
+                }
                 ListRow(
                     icon = Icons.Filled.Bluetooth,
                     title = "蓝牙设备",

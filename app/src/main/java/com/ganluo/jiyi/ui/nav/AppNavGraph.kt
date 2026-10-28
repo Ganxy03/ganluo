@@ -1,6 +1,7 @@
 package com.ganluo.jiyi.ui.nav
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
@@ -17,6 +18,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import com.ganluo.jiyi.permissions.LocationPermissionHelper
+import com.ganluo.jiyi.ui.FeatureFlags
 import com.ganluo.jiyi.ui.map.LocationShareService
 import com.ganluo.jiyi.util.CrashLogger
 import kotlinx.coroutines.delay
@@ -83,7 +85,7 @@ fun AppRoot(
     }
     LaunchedEffect(hasToken) {
         runCatching { CrashLogger.stage(ctx, "ui.ready token=$hasToken") }
-        if (hasToken == true) {
+        if (hasToken == true && FeatureFlags.LOCATION) {
             if (LocationShareService.hasLocationPermission(ctx)) {
                 // 等首帧渲染完再拉服务:冷启动瞬间起 FGS 容易和进程初始化打架
                 delay(1_200)
@@ -104,6 +106,9 @@ fun AppRoot(
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
+        // ⚠️ 不要在这里再消费状态栏 inset:各页的 CompactTopBar 已经加了 statusBars padding,
+        //    两边都加 = 顶部多出一条空白(1.0.23 及之前的问题)。底部由 bottomBar 自己处理。
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
             if (showBottomBar) {
                 BottomNavBar(

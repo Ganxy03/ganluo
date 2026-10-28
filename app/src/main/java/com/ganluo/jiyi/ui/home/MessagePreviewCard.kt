@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -52,6 +53,8 @@ fun MessagePreviewCard(
     messages: List<MessageDto>,
     onOpenChat: () -> Unit,
     onGoProfile: () -> Unit,
+    /** 底部内联输入条(1.0.24):首页直接留言,不用点进聊天窗 */
+    composer: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -184,6 +187,16 @@ fun MessagePreviewCard(
                     }
                 }
             }
+            // ===== 底部内联输入条 =====
+            if (composer != null) {
+                Spacer(Modifier.height(Spacing.xs))
+                HorizontalDivider(
+                    thickness = 0.5.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                )
+                composer()
+            }
+
             Spacer(Modifier.height(2.dp))
         }
     }
