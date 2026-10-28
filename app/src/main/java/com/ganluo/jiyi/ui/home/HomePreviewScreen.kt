@@ -5,8 +5,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
@@ -43,7 +41,10 @@ fun HomePreviewScreen() {
     val fakeMessages = listOf(
         MessageDto(1, "今天下班早,想吃那家麻辣烫", isMine = false, isRead = true, time = "18:32"),
         MessageDto(2, "好呀,我七点到家", isMine = true, isRead = true, time = "18:35"),
-        MessageDto(3, "那我先去买点水果 🍊", isMine = false, isRead = true, time = "18:40")
+        MessageDto(3, "那我先去买点水果 🍊", isMine = false, isRead = true, time = "18:40"),
+        MessageDto(4, "顺便把快递取一下,有两箱", isMine = false, isRead = true, time = "18:41"),
+        MessageDto(5, "收到,马上出门 🚶", isMine = true, isRead = true, time = "18:42"),
+        MessageDto(6, "路上小心,外面有点风", isMine = false, isRead = true, time = "18:45")
     )
 
     Scaffold(
@@ -56,7 +57,6 @@ fun HomePreviewScreen() {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .verticalScroll(rememberScrollState())
                 .padding(horizontal = Spacing.screenH, vertical = Spacing.sm)
         ) {
             DatePickerCard(
@@ -98,9 +98,9 @@ fun HomePreviewScreen() {
                         onClearImage = { upload = ComposerUpload.Idle },
                         onSend = { text = "" }
                     )
-                }
+                },
+                modifier = Modifier.weight(1f)
             )
-            Spacer(Modifier.height(Spacing.xxxl))
         }
     }
 }

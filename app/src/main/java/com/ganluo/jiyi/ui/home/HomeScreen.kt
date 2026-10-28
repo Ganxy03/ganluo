@@ -10,8 +10,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -86,12 +84,14 @@ fun HomeScreen(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = { CompactTopBar(title = "日常") }
     ) { padding ->
+        // 注意:整页**不再纵向滚动**。留言卡要撑满剩余高度,必须由 Column 的
+        // weight(1f) 分高度;放进 verticalScroll 后高度变成无限,weight 会失效。
+        // 消息太多时由留言卡内部的 LazyColumn 自己滚。
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
                 .imePadding()
-                .verticalScroll(rememberScrollState())
                 .padding(horizontal = Spacing.screenH, vertical = Spacing.sm)
         ) {
             // ===== ① 日历 =====
@@ -155,10 +155,9 @@ fun HomeScreen(
                             }
                         )
                     }
-                } else null
+                } else null,
+                modifier = Modifier.weight(1f)
             )
-
-            Spacer(Modifier.height(Spacing.xxxl))
         }
     }
 
